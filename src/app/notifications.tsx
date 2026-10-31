@@ -50,6 +50,9 @@ export default function NotificationsScreen() {
         action={unreadIds.size ? 'Mark all read' : undefined}
         onAction={() => setUnreadIds(new Set())}
       />
+      {unreadIds.size ? (
+        <Text className="-mt-3 mb-3 text-[13px] text-[#747B8B]">{unreadIds.size} unread</Text>
+      ) : null}
 
       <View className="mb-4 flex-row">
         {(['All', 'Miles', 'Bookings', 'Events'] as const).map((item) => (
@@ -67,7 +70,7 @@ export default function NotificationsScreen() {
 
             return (
               <View key={period} className="mb-4">
-                <Text className="mb-2 text-[10px] font-medium tracking-[0.4px] text-muted">{period.toUpperCase()}</Text>
+                <Text className="mb-2 text-[12px] font-medium tracking-[0.4px] text-muted">{period.toUpperCase()}</Text>
                 <View className="overflow-hidden rounded-[16px] bg-white px-3.5">
                   {group.map((notification, index) => {
                     const isUnread = unreadIds.has(notification.id);
@@ -77,15 +80,15 @@ export default function NotificationsScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`${notification.title}. ${notification.message}. ${isUnread ? 'Unread' : 'Read'}`}
                         onPress={() => openNotification(notification)}
-                        className={`min-h-[90px] flex-row items-start py-3.5 ${index < group.length - 1 ? 'border-b border-[#F0F1F5]' : ''}`}
+                        className={`min-h-[96px] flex-row items-start py-3.5 ${index < group.length - 1 ? 'border-b border-[#F0F1F5]' : ''}`}
                       >
                         <View className={`mr-3 h-9 w-9 items-center justify-center rounded-[11px] ${notification.icon === 'booking' ? 'bg-[#E8F7F0]' : notification.icon === 'gift' || notification.icon === 'warning' ? 'bg-[#FCF4DF]' : 'bg-[#F1F1FB]'}`}>
                           <NotificationIcon notification={notification} />
                         </View>
                         <View className="flex-1">
-                          <Text className="text-[13px] font-semibold text-ink">{notification.title}</Text>
-                          <Text className="mt-1 text-[11px] leading-[16px] text-muted">{notification.message}</Text>
-                          <Text className="mt-1 text-[10px] text-muted">{notification.time}</Text>
+                          <Text className="text-[15px] font-semibold text-ink">{notification.title}</Text>
+                          <Text className="mt-1 text-[13px] leading-[19px] text-muted">{notification.message}</Text>
+                          <Text className="mt-1 text-[12px] text-muted">{notification.time}</Text>
                         </View>
                         {isUnread ? <View className="ml-2 mt-1.5 h-2 w-2 rounded-full bg-brand" /> : null}
                       </Pressable>
@@ -99,8 +102,8 @@ export default function NotificationsScreen() {
       ) : (
         <View className="mt-8 items-center rounded-[16px] bg-white px-6 py-10">
           <Bell color="#4145B6" size={27} />
-          <Text className="mt-3 text-[15px] font-semibold text-ink">No notifications yet</Text>
-          <Text className="mt-1 text-center text-[12px] leading-[18px] text-muted">
+          <Text className="mt-3 text-[17px] font-semibold text-ink">No notifications yet</Text>
+          <Text className="mt-1 text-center text-[14px] leading-[20px] text-muted">
             Updates about your miles, bookings and events will appear here.
           </Text>
         </View>

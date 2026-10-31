@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { router } from 'expo-router';
+import { Plane } from 'lucide-react-native';
 import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BrandMark } from '@/components/ui';
+import { AuthHero } from '@/components/figma-auth';
 
 export default function SplashScreen() {
   useEffect(() => {
@@ -11,19 +12,23 @@ export default function SplashScreen() {
   }, []);
 
   return (
-    <SafeAreaView className="w-full max-w-[440px] flex-1 self-center items-center justify-center bg-canvas">
+    <SafeAreaView className="w-full max-w-[440px] flex-1 self-center bg-[#11184F]">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Continue to WowMiles"
         onPress={() => router.replace('/(auth)/onboarding')}
-        className="items-center"
+        className="flex-1"
       >
-        <BrandMark size={112} />
-        <Text className="mt-5 text-[38px] font-bold tracking-[-1.5px] text-navy">WowMiles</Text>
+        <AuthHero className="flex-1 items-center justify-center">
+          <View className="h-[54px] w-[54px] items-center justify-center rounded-[15px] bg-[#FFB91F]">
+            <Plane color="#171A28" size={29} strokeWidth={2} />
+          </View>
+          <Text className="mt-4 text-[28px] font-bold tracking-[-1px] text-white">WowMiles</Text>
+          <View className="absolute bottom-8">
+            <Text className="text-[12px] tracking-[2px] text-white/65">TRAVEL. EARN. REPEAT.</Text>
+          </View>
+        </AuthHero>
       </Pressable>
-      <View className="absolute bottom-12">
-        <Text className="text-[12px] tracking-[2px] text-muted">TRAVEL. EARN. REPEAT.</Text>
-      </View>
     </SafeAreaView>
   );
 }

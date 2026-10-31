@@ -1,30 +1,71 @@
 import { useState } from 'react';
 import { router } from 'expo-router';
-import { Alert, View } from 'react-native';
-import { BackButton, Field, Heading, PasswordField, PrimaryButton, Screen } from '@/components/ui';
+import { View } from 'react-native';
+import {
+  AuthBackButton,
+  AuthField,
+  AuthFooter,
+  AuthFormScreen,
+  AuthHeading,
+  AuthPasswordField,
+} from '@/components/figma-auth';
+import { useToast } from '@/components/toast';
 
 export default function ResetPasswordScreen() {
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const showToast = useToast();
+
+  function savePassword() {
+    if (code.length !== 6 || password.length < 8 || password !== confirmPassword) {
+      showToast('Check your details', 'Enter the 6-digit code, use a password with at least 8 characters, and confirm it correctly.');
+      return;
+    }
+    showToast('Password updated', 'You can now log in with your new password.', 'success');
+    router.replace('/(auth)/login');
+  }
+
   return (
-    <Screen>
-      <View className="pt-2">
-        <BackButton />
-        <Heading title="Reset your password" description="Enter the code from your email and choose a new password." />
-        <Field label="Reset code" value={code} onChangeText={setCode} placeholder="6-digit code" keyboardType="number-pad" maxLength={6} />
-        <PasswordField label="New password" value={password} onChangeText={setPassword} placeholder="At least 8 characters" />
-        <PrimaryButton
-          title="Save new password"
-          onPress={() => {
-            if (code.length !== 6 || password.length < 8) {
-              Alert.alert('Check your details', 'Enter the 6-digit code and a password with at least 8 characters.');
-              return;
-            }
-            Alert.alert('Password updated', 'You can now log in with your new password.');
-            router.replace('/(auth)/login');
-          }}
+    <AuthFormScreen
+      footer={
+        <AuthFooter
+          eyebrow="Then"
+          title="We will sign you in"
+          buttonLabel="Save"
+          onPress={savePassword}
+        />
+      }
+    >
+      <View>
+        <AuthBackButton />
+        <View className="mt-5">
+          <AuthHeading
+            title="Create a new password"
+            description="Choose something new you haven’t used before."
+          />
+        </View>
+        <AuthField
+          label="Reset code"
+          value={code}
+          onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
+          placeholder="6-digit code"
+          keyboardType="number-pad"
+          maxLength={6}
+        />
+        <AuthPasswordField
+          label="New password"
+          value={password}
+          onChangeText={setPassword}
+          placeholder="New password"
+        />
+        <AuthPasswordField
+          label="Confirm new password"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          placeholder="Confirm new password"
         />
       </View>
-    </Screen>
+    </AuthFormScreen>
   );
 }

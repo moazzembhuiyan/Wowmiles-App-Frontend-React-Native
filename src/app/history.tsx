@@ -85,7 +85,7 @@ export default function MilesHistoryScreen() {
             if (!monthActivities.length) return null;
             return (
               <View key={month} className="mb-4">
-                <Text className="mb-2 text-[10px] font-medium tracking-[0.4px] text-muted">{month}</Text>
+                <Text className="mb-2 text-[12px] font-medium tracking-[0.4px] text-muted">{month}</Text>
                 <View className="rounded-[16px] bg-white px-3.5">
                   {monthActivities.map((activity, index) => (
                     <DataRow
@@ -137,7 +137,7 @@ export default function MilesHistoryScreen() {
               </Pressable>
             </View>
 
-            <Text className="mb-2 text-[10px] font-semibold tracking-[0.5px] text-muted">DATE RANGE</Text>
+            <Text className="mb-2 text-[12px] font-semibold tracking-[0.5px] text-muted">DATE RANGE</Text>
             {(['Last 30 days', 'Last 3 months', 'This year', 'All time'] as const).map((item) => (
               <Pressable
                 key={item}
@@ -153,7 +153,7 @@ export default function MilesHistoryScreen() {
               </Pressable>
             ))}
 
-            <Text className="mb-2 mt-4 text-[10px] font-semibold tracking-[0.5px] text-muted">ACTIVITY TYPE</Text>
+            <Text className="mb-2 mt-4 text-[12px] font-semibold tracking-[0.5px] text-muted">ACTIVITY TYPE</Text>
             {activityFilters.map((type) => (
               <Pressable
                 key={type}

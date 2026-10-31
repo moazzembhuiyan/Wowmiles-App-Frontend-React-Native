@@ -35,7 +35,7 @@ export default function NotificationDetailScreen() {
         </View>
         <Text className="mt-4 text-center text-[20px] font-bold text-ink">{notification.title}</Text>
         <View className="mt-2 rounded-full bg-[#E8F7F0] px-3 py-1">
-          <Text className="text-[11px] font-semibold text-[#23875D]">
+          <Text className="text-[13px] font-semibold text-[#23875D]">
             {isBooking ? '•  Approved' : notification.category}
           </Text>
         </View>
@@ -55,7 +55,7 @@ export default function NotificationDetailScreen() {
                 <Hotel color="#4145B6" size={18} />
               </View>
               <View className="flex-1">
-                <Text className="text-[10px] text-muted">BOOKING</Text>
+                <Text className="text-[12px] text-muted">BOOKING</Text>
                 <Text className="mt-1 text-[13px] font-medium text-ink">Hilton Dubai — 4 nights</Text>
               </View>
             </View>
@@ -68,7 +68,7 @@ export default function NotificationDetailScreen() {
         </>
       ) : null}
 
-      <Text className="mb-5 text-center text-[11px] text-muted">{notification.time}</Text>
+      <Text className="mb-5 text-center text-[12px] text-muted">{notification.time}</Text>
     </MilesScreen>
   );
 }

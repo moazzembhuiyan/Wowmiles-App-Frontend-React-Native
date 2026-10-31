@@ -1,5 +1,5 @@
-import { FeatureTab } from '@/components/feature-tab';
+import { BookingFlow } from '@/components/booking-flow';
 
 export default function BookingsScreen() {
-  return <FeatureTab screen="bookings" />;
+  return <BookingFlow />;
 }

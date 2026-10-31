@@ -1,7 +1,21 @@
 import { router } from 'expo-router';
-import { Award, Check, ChevronRight, Lock, Sparkles, Star, TrendingUp } from 'lucide-react-native';
-import { Pressable, Text, View } from 'react-native';
-import { MilesHeader, MilesScreen, SectionTitle } from '@/components/miles-ui';
+import { LinearGradient } from 'expo-linear-gradient';
+
+import {
+  ArrowLeft,
+  Award,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Globe2,
+  LockKeyhole,
+  MessageCircle,
+  TrendingUp,
+} from 'lucide-react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
 const tiers = [
   { name: 'Silver', range: '0 – 29,999 miles', status: 'complete' },
@@ -10,91 +24,198 @@ const tiers = [
 ] as const;
 
 const benefits = [
-  { text: '1.25× miles on participating partner brands', Icon: TrendingUp },
-  { text: 'Exclusive invitations to trade fairs and workshops', Icon: Award },
-  { text: 'Personal travel discounts with partner hotels', Icon: Sparkles },
-];
+  {
+    title: '1.25× miles on partner brands',
+    detail: 'Applied automatically on every approved booking with a participating partner.',
+    Icon: TrendingUp,
+    expanded: true,
+  },
+  {
+    title: 'Exclusive event invitations',
+    detail: undefined,
+    Icon: CalendarDays,
+    expanded: false,
+  },
+  {
+    title: 'Personal travel discounts',
+    detail: undefined,
+    Icon: Globe2,
+    expanded: false,
+  },
+  {
+    title: 'Priority support · 1 working day',
+    detail: undefined,
+    Icon: MessageCircle,
+    expanded: false,
+  },
+] as const;
 
 export default function LoyaltyScreen() {
+  const insets = useSafeAreaInsets();
+
   return (
-    <MilesScreen>
-      <MilesHeader title="Loyalty status" />
-
-      <View className="mb-5 rounded-[20px] bg-[#FCF2D8] px-5 py-5">
-        <View className="flex-row items-center">
-          <Award color="#A77C19" size={17} />
-          <Text className="ml-2 text-[12px] font-semibold text-[#946A13]">Gold</Text>
-        </View>
-        <View className="mt-4 flex-row items-baseline">
-          <Text className="text-[34px] font-bold tracking-[-1px] text-ink">48,500</Text>
-          <Text className="ml-2 text-[12px] text-muted">miles</Text>
-        </View>
-        <View className="mt-3 h-[7px] overflow-hidden rounded-full bg-white">
-          <View className="h-full w-[61%] rounded-full bg-[#D4A332]" />
-        </View>
-        <Text className="mt-2.5 text-[11px] text-muted">31,500 miles to Platinum Ambassador</Text>
-      </View>
-
-      <SectionTitle title="Tier ladder" />
-      <View className="mb-5 overflow-hidden rounded-[16px] bg-white">
-        {tiers.map((tier, index) => {
-          const isCurrent = tier.status === 'current';
-          const Icon = tier.status === 'complete' ? Check : tier.status === 'current' ? Star : Lock;
-          return (
-            <Pressable
-              key={tier.name}
-              accessibilityRole={tier.status === 'locked' ? 'button' : undefined}
-              disabled={tier.status !== 'locked'}
-              onPress={() => router.push('/tier-benefits')}
-              className={`min-h-[68px] flex-row items-center px-4 ${isCurrent ? 'bg-[#F0F1FB]' : 'bg-white'} ${index < tiers.length - 1 ? 'border-b border-[#F0F1F5]' : ''}`}
-            >
-              <View
-                className={`mr-3 h-9 w-9 items-center justify-center rounded-full ${
-                  isCurrent ? 'bg-brand' : tier.status === 'complete' ? 'bg-[#E7F6EF]' : 'bg-[#F3F4F7]'
-                }`}
-              >
-                <Icon
-                  color={isCurrent ? 'white' : tier.status === 'complete' ? '#23875D' : '#9299A7'}
-                  size={17}
-                  strokeWidth={2}
-                />
-              </View>
-              <View className="flex-1">
-                <Text className={`text-[14px] font-semibold ${tier.status === 'locked' ? 'text-muted' : 'text-ink'}`}>
-                  {tier.name}
-                </Text>
-                <Text className="mt-1 text-[11px] text-muted">{tier.range}</Text>
-              </View>
-              {isCurrent ? (
-                <View className="rounded-full bg-brand px-2.5 py-1">
-                  <Text className="text-[10px] font-semibold text-white">Current</Text>
-                </View>
-              ) : tier.status === 'locked' ? (
-                <ChevronRight color="#9AA1AF" size={18} />
-              ) : null}
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <SectionTitle
-        title="Your Gold benefits"
-        action="See Platinum"
-        onAction={() => router.push('/tier-benefits')}
+    <View className="flex-1 bg-[#F8F9FB]">
+      <View
+        pointerEvents="none"
+        className="absolute left-0 right-0 top-0 bg-[#11184F]"
+        style={{ height: insets.top }}
       />
-      <View className="mb-4 rounded-[16px] bg-white px-4">
-        {benefits.map(({ text, Icon }, index) => (
-          <View
-            key={text}
-            className={`flex-row items-center py-3.5 ${index < benefits.length - 1 ? 'border-b border-[#F0F1F5]' : ''}`}
-          >
-            <View className="mr-3 h-9 w-9 items-center justify-center rounded-[11px] bg-[#FCF4DF]">
-              <Icon color="#A77C19" size={17} />
+      <SafeAreaView
+        edges={['top', 'bottom']}
+        className="w-full max-w-[440px] flex-1 self-center bg-transparent"
+      >
+        <StatusBar style="light" />
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{ flexGrow: 1, backgroundColor: '#F8F9FB' }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View className="relative h-[330px] overflow-hidden px-5 pb-6 pt-4">
+            <LinearGradient
+              colors={['#11184F', '#29368F', '#454DC2']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <View
+              pointerEvents="none"
+              className="absolute -right-7 -top-14 h-52 w-52 rounded-full border border-white/10"
+            />
+            <View
+              pointerEvents="none"
+              className="absolute -right-3 -top-4 h-40 w-40 rounded-full border border-white/10"
+            />
+
+            <View className="flex-row items-center">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+                onPress={() => router.back()}
+                className="mr-3 h-11 w-11 items-center justify-center rounded-full bg-white/20"
+                hitSlop={8}
+              >
+                <ArrowLeft color="white" size={20} />
+              </Pressable>
+              <Text className="text-[16px] font-medium text-white">Loyalty status</Text>
             </View>
-            <Text className="flex-1 text-[12px] leading-[18px] text-muted">{text}</Text>
+
+            <View className="mt-7 h-16 w-16 items-center justify-center rounded-full border-2 border-[#FFB91F] bg-[#FFB91F]">
+              <Award color="#24284E" size={25} strokeWidth={1.8} />
+            </View>
+            <Text className="mt-2 text-[38px] font-light leading-[44px] text-white">Gold</Text>
+            <View className="mt-1 flex-row items-baseline">
+              <Text className="text-[22px] font-semibold leading-[28px] text-white">48,500</Text>
+              <Text className="ml-1.5 text-[13px] text-[#D8DAF2]">of 80,000 lifetime miles</Text>
+            </View>
+
+            <View className="mt-auto">
+              <View className="h-[4px] justify-center rounded-full bg-white/20">
+                <View className="h-full w-1/2 rounded-full bg-[#FFB91F]" />
+                <View className="absolute left-[3%] h-3 w-3 rounded-full border-2 border-[#FFB91F] bg-[#FFB91F]" />
+                <View
+                  className="absolute h-7 w-7 items-center justify-center rounded-full border-[3px] border-white/35 bg-[#FFB91F]"
+                  style={{ left: '50%', marginLeft: -14 }}
+                >
+                  <View className="h-3 w-3 rounded-full bg-[#FFB91F]" />
+                </View>
+                <View className="absolute right-[3%] h-3 w-3 rounded-full bg-[#202B75]" />
+              </View>
+              <View className="mt-4 flex-row justify-between">
+                <Text className="text-[12px] text-[#E0E3F7]">Silver</Text>
+                <Text className="text-[12px] text-[#E0E3F7]">Gold</Text>
+                <Text className="text-[12px] text-[#9EA6D0]">Platinum</Text>
+              </View>
+            </View>
           </View>
-        ))}
-      </View>
-    </MilesScreen>
+
+          <View className="flex-1 bg-[#F8F9FB] px-5 pb-6 pt-5">
+            <Text className="mb-3 text-[12px] font-semibold tracking-[0.7px] text-[#747B8B]">
+              TIER LADDER
+            </Text>
+            <View className="mb-5">
+              {tiers.map((tier, index) => {
+                const current = tier.status === 'current';
+                const complete = tier.status === 'complete';
+                const Icon = complete ? Check : current ? Award : LockKeyhole;
+
+                return (
+                  <Pressable
+                    key={tier.name}
+                    accessibilityRole={tier.status === 'locked' ? 'button' : undefined}
+                    disabled={tier.status !== 'locked'}
+                    onPress={() => tier.status === 'locked' && router.push('/tier-benefits')}
+                    className="min-h-[54px] flex-row items-center"
+                  >
+                    <View className="mr-3 h-[42px] w-7 items-center justify-center">
+                      {index < tiers.length - 1 ? (
+                        <View className="absolute bottom-[-8px] top-[34px] w-px bg-[#DDE1EA]" />
+                      ) : null}
+                      <View
+                        className={`h-9 w-9 items-center justify-center rounded-full ${
+                          current ? 'bg-[#FFB91F]' : complete ? 'bg-[#E7F6EF]' : 'bg-[#F0F1F5]'
+                        }`}
+                      >
+                        <Icon
+                          color={current ? '#24284E' : complete ? '#23875D' : '#858B98'}
+                          size={17}
+                          strokeWidth={2}
+                        />
+                      </View>
+                    </View>
+                    <View className="flex-1">
+                      <Text
+                        className={`text-[15px] font-medium ${
+                          tier.status === 'locked' ? 'text-[#858B98]' : 'text-[#202638]'
+                        }`}
+                      >
+                        {tier.name}
+                      </Text>
+                      <Text className="mt-0.5 text-[12px] text-[#858B98]">{tier.range}</Text>
+                    </View>
+                    {current ? (
+                      <View className="rounded-full bg-[#4145B6] px-3 py-1">
+                        <Text className="text-[12px] font-semibold text-white">You</Text>
+                      </View>
+                    ) : tier.status === 'locked' ? (
+                      <ChevronRight color="#858B98" size={17} />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text className="mb-2 text-[12px] font-semibold tracking-[0.7px] text-[#747B8B]">
+              YOUR GOLD BENEFITS
+            </Text>
+            <View className="mb-3">
+              {benefits.map(({ title, detail, Icon, expanded }) => (
+                <View key={title} className="border-b border-[#E8EAF0]">
+                  <Pressable
+                    accessibilityRole={detail ? 'button' : undefined}
+                    accessibilityState={detail ? { expanded } : undefined}
+                    className="min-h-[52px] flex-row items-center"
+                  >
+                    <Icon color="#5969C7" size={17} strokeWidth={1.8} />
+                    <Text className="ml-3 flex-1 text-[14px] font-medium text-[#202638]">
+                      {title}
+                    </Text>
+                    {detail ? (
+                      <ChevronDown color="#858B98" size={17} />
+                    ) : (
+                      <ChevronRight color="#858B98" size={17} />
+                    )}
+                  </Pressable>
+                  {detail ? (
+                    <Text className="mb-3 ml-[29px] mr-5 text-[12px] leading-[18px] text-[#626A79]">
+                      {detail}
+                    </Text>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }

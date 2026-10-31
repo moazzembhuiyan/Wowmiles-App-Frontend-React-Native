@@ -1,27 +1,63 @@
 import { useState } from 'react';
 import { router } from 'expo-router';
-import { Alert, View } from 'react-native';
-import { BackButton, Field, Heading, PrimaryButton, Screen } from '@/components/ui';
+import { Pressable, Text, View } from 'react-native';
+import {
+  AuthBackButton,
+  AuthField,
+  AuthFooter,
+  AuthFormScreen,
+  AuthHeading,
+  AuthStatusBar,
+} from '@/components/figma-auth';
+import { useToast } from '@/components/toast';
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState('');
+  const showToast = useToast();
   return (
-    <Screen>
-      <View className="pt-2">
-        <BackButton />
-        <Heading title="Forgot password?" description="Enter the work email linked to your account and we'll send you a reset code." />
-        <Field label="Work email" value={email} onChangeText={setEmail} placeholder="you@agency.com" keyboardType="email-address" />
-        <PrimaryButton
-          title="Send reset code"
+    <AuthFormScreen
+      footer={
+        <AuthFooter
+          eyebrow="Sending to"
+          title={email || 'your verified agency email'}
+          buttonLabel="Send link"
           onPress={() => {
             if (!email.includes('@')) {
-              Alert.alert('Enter a valid email', 'Use the work email registered to your account.');
+              showToast('Enter a valid email', 'Use the work email registered to your account.');
               return;
             }
             router.push('/(auth)/reset');
           }}
         />
+      }
+    >
+      <View>
+        <AuthBackButton />
+        <View className="mt-5">
+          <AuthHeading
+            title="Reset your password"
+            description="Enter the email linked to your WowMiles account and we’ll send a reset link."
+          />
+        </View>
+        <AuthField
+          label="Work email"
+          value={email}
+          onChangeText={setEmail}
+          placeholder="you@agency.com"
+          keyboardType="email-address"
+        />
+        <AuthStatusBar>
+          <Text className="text-[12px] leading-[17px] text-[#49729A]">
+            We only send reset links to verified agency email addresses.
+          </Text>
+        </AuthStatusBar>
+        <View className="mt-3 flex-row justify-center">
+          <Text className="text-[12px] text-[#747B8B]">Remembered it? </Text>
+          <Pressable onPress={() => router.push('/(auth)/login')}>
+            <Text className="text-[12px] font-semibold text-[#354495]">Back to log in</Text>
+          </Pressable>
+        </View>
       </View>
-    </Screen>
+    </AuthFormScreen>
   );
 }
