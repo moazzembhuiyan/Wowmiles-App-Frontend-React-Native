@@ -1,5 +1,5 @@
-import { FeatureTab } from '@/components/feature-tab';
+import { AcademyFlow } from '@/components/academy/academy-flow';
 
 export default function AcademyScreen() {
-  return <FeatureTab screen="academy" />;
+  return <AcademyFlow />;
 }

@@ -36,7 +36,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useToast } from '@/components/toast';
-import { useBookingTabBar } from '@/components/booking-navigation';
+import { useTabBarVisibility } from '@/components/tab-bar-visibility';
 
 type BookingStatus = 'Awaiting supplier' | 'Approved' | 'Reversed';
 type BookingCategory =
@@ -485,7 +485,7 @@ function FileRow({ file, onRemove }: { file: PickedFile; onRemove?: () => void }
 export function BookingFlow() {
   const insets = useSafeAreaInsets();
   const showToast = useToast();
-  const setBookingFlowHidden = useBookingTabBar();
+  const setTabBarHidden = useTabBarVisibility();
   const [screen, setScreen] = useState<Screen>('list');
   const [bookings, setBookings] = useState(initialBookings);
   const [filter, setFilter] = useState<BookingFilter>('All');
@@ -502,8 +502,9 @@ export function BookingFlow() {
   const [confirmBooking, setConfirmBooking] = useState(true);
 
   useEffect(() => {
-    setBookingFlowHidden(screen !== 'list');
-  }, [screen, setBookingFlowHidden]);
+    setTabBarHidden(screen !== 'list');
+    return () => setTabBarHidden(false);
+  }, [screen, setTabBarHidden]);
 
   const milesEstimate = useMemo(() => milesFromValue(draft.value), [draft.value]);
   const visibleBookings = useMemo(

@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Award, CalendarDays, House, TicketCheck, UserRound } from 'lucide-react-native';
 import { Pressable, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
-import { BookingTabBarContext, useBookingTabBar } from '@/components/booking-navigation';
+import { TabBarVisibilityContext, useTabBarVisibility } from '@/components/tab-bar-visibility';
 
 const tabs = [
   { name: 'index', title: 'Home', Icon: House },
@@ -77,7 +77,7 @@ function TabItem({
 
 function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBarProps) {
   const insets = useSafeAreaInsets();
-  const setBookingFlowHidden = useBookingTabBar();
+  const setTabBarHidden = useTabBarVisibility();
 
   return (
     <View
@@ -111,7 +111,7 @@ function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBarProps) 
           const focused = state.index === index;
 
           const onPress = () => {
-            setBookingFlowHidden(false);
+            setTabBarHidden(false);
             const event = emitter.emit({
               type: 'tabPress',
               target: route.key,
@@ -143,12 +143,12 @@ function FloatingTabBar({ state, emitter, navigateToTab }: FloatingTabBarProps) 
 }
 
 export default function TabsLayout() {
-  const [bookingFlowHidden, setBookingFlowHidden] = useState(false);
+  const [tabBarHidden, setTabBarHidden] = useState(false);
 
   return (
-    <BookingTabBarContext.Provider value={setBookingFlowHidden}>
+    <TabBarVisibilityContext.Provider value={setTabBarHidden}>
       <Tabs
-        tabBar={(props) => bookingFlowHidden ? null : <FloatingTabBar {...props} />}
+        tabBar={(props) => tabBarHidden ? null : <FloatingTabBar {...props} />}
         screenOptions={{
           headerShown: false,
           lazy: false,
@@ -159,6 +159,6 @@ export default function TabsLayout() {
           <Tabs.Screen key={name} name={name} options={{ title }} />
         ))}
       </Tabs>
-    </BookingTabBarContext.Provider>
+    </TabBarVisibilityContext.Provider>
   );
 }

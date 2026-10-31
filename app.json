@@ -17,7 +17,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.wowmilesapp"
     },
     "plugins": [
       "expo-router",
@@ -27,7 +28,8 @@
           "enforceContrast": false,
           "style": "dark"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true
