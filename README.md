@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:0F172A,50:1E3A8A,100:38BDF8&height=180&section=header&text=WowMiles&fontSize=40&fontColor=ffffff&fontAlignY=36&desc=Travel.%20Earn.%20Repeat.&descAlignY=58&descSize=16" alt="WowMiles" />
+<img src=".github/banner.svg" width="100%" alt="WowMiles — Travel. Earn. Repeat." />
 
 <p><b>📱 Cross-platform Mobile App · iOS & Android</b></p>
 
