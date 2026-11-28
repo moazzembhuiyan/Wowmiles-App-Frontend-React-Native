@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -30,12 +31,15 @@ export function AcademyCourseScreen({
   onBack,
   onOpenLesson,
   onOpenCertificate,
+  onFinishCourse,
 }: {
   courseId: string;
   onBack: () => void;
   onOpenLesson: (lessonId: string) => void;
   onOpenCertificate: () => void;
+  onFinishCourse: () => Promise<void>;
 }) {
+  const [finishing, setFinishing] = useState(false);
   const showToast = useToast();
   const courseQuery = useQuery({ queryKey: ['academy', 'course', courseId], queryFn: () => getCourse(courseId) });
   const lessonsQuery = useQuery({ queryKey: ['academy', 'lessons', courseId], queryFn: () => getLessons(courseId) });
@@ -72,7 +76,14 @@ export function AcademyCourseScreen({
   const hasCertificate = course.certificate.enabled;
   const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
+  const needsFinish = enrolled && !courseCompleted && !current && total > 0;
+
   const onContinue = () => {
+    if (needsFinish) {
+      setFinishing(true);
+      void onFinishCourse().finally(() => setFinishing(false));
+      return;
+    }
     if (courseCompleted) {
       onOpenCertificate();
       return;
@@ -157,10 +168,10 @@ export function AcademyCourseScreen({
 
       {courseCompleted && !hasCertificate ? null : (
         <AcademyActionBar
-          eyebrow={courseCompleted ? 'COURSE COMPLETED' : enrolled ? 'UP NEXT' : 'NOT STARTED'}
-          title={courseCompleted ? 'Certificate available' : current ? `Lesson ${currentIndex + 1} of ${total}` : 'Start this course'}
-          actionLabel={courseCompleted ? 'View certificate' : enrolled ? 'Continue' : 'Enrol'}
-          disabled={enrolMutation.isPending || (!courseCompleted && enrolled && !current)}
+          eyebrow={courseCompleted ? 'COURSE COMPLETED' : needsFinish ? 'ALL LESSONS DONE' : enrolled ? 'UP NEXT' : 'NOT STARTED'}
+          title={courseCompleted ? 'Certificate available' : needsFinish ? 'Finish the course to claim your reward' : current ? `Lesson ${currentIndex + 1} of ${total}` : 'Start this course'}
+          actionLabel={courseCompleted ? 'View certificate' : needsFinish ? 'Finish' : enrolled ? 'Continue' : 'Enrol'}
+          disabled={enrolMutation.isPending || finishing}
           onPress={onContinue}
         />
       )}

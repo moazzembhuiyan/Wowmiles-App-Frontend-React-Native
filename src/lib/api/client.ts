@@ -65,6 +65,8 @@ export type RequestOptions = {
   auth?: boolean;
   /** Explicit bearer (signup or reset OTP flows); disables refresh. */
   token?: string;
+  /** Extra request headers. */
+  headers?: Record<string, string>;
 };
 
 /** The backend prefixes the machine code to the message (`BOOKING_DUPLICATE: ...`). */
@@ -90,7 +92,7 @@ async function send(path: string, options: RequestOptions, accessToken: string |
     .join('&');
   const url = `${apiBase()}${path}${query ? `?${query}` : ''}`;
 
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { Accept: 'application/json', ...options.headers };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
   let body: BodyInit | undefined;

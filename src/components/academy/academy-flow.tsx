@@ -4,6 +4,7 @@ import { AcademyCourseScreen } from './academy-course-screen';
 import { AcademyPlayerScreen } from './academy-player-screen';
 import { AcademyQuizScreen } from './academy-quiz-screen';
 import { AcademyQuizResultScreen } from './academy-quiz-result-screen';
+import { AcademyVerifyScreen } from './academy-verify-screen';
 import { AcademyCertificateScreen } from './academy-certificate-screen';
 import { useTabBarVisibility } from '@/components/tab-bar-visibility';
 import { useToast } from '@/components/toast';
@@ -20,7 +21,7 @@ import {
 } from '@/lib/api/academy';
 import { ApiError, queryClient } from '@/lib/api/client';
 
-type AcademyStage = 'home' | 'course' | 'player' | 'quiz' | 'result' | 'certificate';
+type AcademyStage = 'home' | 'course' | 'player' | 'quiz' | 'result' | 'certificate' | 'verify';
 
 type QuizOutcome = { attempt: QuizAttempt; lesson: Lesson; completion: CourseCompletion | null };
 
@@ -84,6 +85,18 @@ export function AcademyFlow() {
     }
   };
 
+  /** Retries `complete-course` when it failed after the last lesson was saved. */
+  const finishCourse = async () => {
+    if (!courseId) return;
+    try {
+      const completion = await completeCourse(courseId);
+      showToast('Course completed', `+${completion.milesAwarded} WowMiles credited.`, 'success');
+      setStage(completion.certificate ? 'certificate' : 'course');
+    } catch (error) {
+      showToast('Could not complete course', error instanceof ApiError ? error.message : 'Please try again.', 'error');
+    }
+  };
+
   const handleAttempt = async (attempt: QuizAttempt, lesson: Lesson) => {
     let completion: CourseCompletion | null = null;
     if (attempt.isPassed && courseId) {
@@ -120,6 +133,7 @@ export function AcademyFlow() {
         onBack={() => setStage('home')}
         onOpenLesson={openLesson}
         onOpenCertificate={() => setStage('certificate')}
+        onFinishCourse={finishCourse}
       />
     );
   }
@@ -158,6 +172,10 @@ export function AcademyFlow() {
     );
   }
 
+  if (stage === 'verify') {
+    return <AcademyVerifyScreen onBack={() => setStage('home')} />;
+  }
+
   if (stage === 'certificate' && courseId) {
     return (
       <AcademyCertificateScreen
@@ -169,5 +187,5 @@ export function AcademyFlow() {
     );
   }
 
-  return <AcademyHomeScreen onOpenCourse={openCourse} onOpenCertificate={(id) => { setCourseId(id); setStage('certificate'); }} />;
+  return <AcademyHomeScreen onOpenCourse={openCourse} onVerify={() => setStage('verify')} onOpenCertificate={(id) => { setCourseId(id); setStage('certificate'); }} />;
 }

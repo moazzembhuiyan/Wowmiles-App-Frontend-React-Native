@@ -192,3 +192,24 @@ export async function getCertificateForCourse(courseId: string): Promise<Certifi
   const live = res.data.find((item) => item.status !== 'revoked') ?? null;
   return live ? { ...live, id: live._id } : null;
 }
+
+/** `GET /certificates/verify/:verifyCode` (public): the holder, course and status of a certificate. */
+export type CertificateVerification = {
+  name: string;
+  course: string;
+  issuedAt: string;
+  status: 'issued' | 'revoked' | 'expired';
+};
+
+/** Returns null when the code is malformed or unknown. */
+export async function verifyCertificate(code: string): Promise<CertificateVerification | null> {
+  const clean = code.trim();
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(clean)) return null;
+  try {
+    const res = await apiRequest<CertificateVerification>(`/certificates/verify/${encodeURIComponent(clean)}`, { auth: false });
+    return res.data;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}

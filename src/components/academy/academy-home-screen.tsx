@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useQuery } from '@tanstack/react-query';
-import { Award, ChevronRight, CirclePlay, Search, Ship, Sparkles } from 'lucide-react-native';
+import { Award, ChevronRight, CirclePlay, Search, Ship, ShieldCheck, Sparkles } from 'lucide-react-native';
 import {
   AcademyEyebrow,
   AcademyGradient,
@@ -64,9 +64,11 @@ function CourseList({ courses, search, onOpen }: { courses: Course[]; search: st
 export function AcademyHomeScreen({
   onOpenCourse,
   onOpenCertificate,
+  onVerify,
 }: {
   onOpenCourse: (courseId: string) => void;
   onOpenCertificate: (courseId: string) => void;
+  onVerify: () => void;
 }) {
   const [tab, setTab] = useState<AcademyHomeTab>('In progress');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -130,6 +132,14 @@ export function AcademyHomeScreen({
         />
         {tab === 'Certificates' ? (
           <View className="mt-4">
+            <Pressable
+              accessibilityRole="button"
+              onPress={onVerify}
+              className="mb-3 min-h-[44px] flex-row items-center justify-center rounded-full border border-[#E8EAF0] bg-white"
+            >
+              <ShieldCheck color="#4145B6" size={16} />
+              <Text className="ml-2 text-[11px] font-semibold text-[#4145B6]">Verify a certificate</Text>
+            </Pressable>
             <QueryView
               query={certificates}
               empty={<EmptyState title="No certificates yet" description="Complete a course to earn your first certificate." />}

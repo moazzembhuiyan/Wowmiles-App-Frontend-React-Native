@@ -220,9 +220,11 @@ export async function fetchPublicAgent(id: string): Promise<PublicAgent> {
   };
 }
 
-/** `GET /auth/sessions`. `isCurrent` needs the refresh token, which a GET cannot carry, so it is false here. */
-export function fetchSessions(): Promise<Session[]> {
-  return apiGet<Session[]>('/auth/sessions');
+/** `GET /auth/sessions`. The refresh token goes in `X-Refresh-Token` so the server can mark this device `isCurrent`. */
+export async function fetchSessions(): Promise<Session[]> {
+  const refreshToken = getTokens()?.refreshToken;
+  const headers = refreshToken ? { 'X-Refresh-Token': refreshToken } : undefined;
+  return (await apiRequest<Session[]>('/auth/sessions', { headers })).data;
 }
 
 /** `DELETE /auth/sessions/:id` (the refresh token in the body lets the server tell whether it is this device). */
