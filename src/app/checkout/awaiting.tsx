@@ -2,9 +2,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { BottomBar, CheckoutScreen, FootNote, formatDate, miles, NextSteps, OutcomeHero, SummaryCard } from '@/components/money-ui';
 import { QueryView } from '@/components/states';
-import { getRewardMeta } from '@/components/rewards-data';
 import { formatEur, getRedemption } from '@/lib/api/redemptions';
-import { mockWallet } from '@/lib/api/wallet';
+import { getReward } from '@/lib/api/rewards';
+import { getWallet } from '@/lib/api/wallet';
 
 function deadlineLabel(iso: string) {
   const date = new Date(iso);
@@ -15,13 +15,17 @@ function deadlineLabel(iso: string) {
 export default function AwaitingProviderScreen() {
   const { rid } = useLocalSearchParams<{ rid?: string }>();
   const query = useQuery({ queryKey: ['redemption', rid], queryFn: () => getRedemption(String(rid)), enabled: !!rid });
+  const rewardId = query.data?.reward.id;
+  const reward = useQuery({ queryKey: ['reward', rewardId], queryFn: () => getReward(String(rewardId)), enabled: !!rewardId });
+  const wallet = useQuery({ queryKey: ['wallet'], queryFn: getWallet });
+  const available = wallet.data?.available ?? 0;
 
   return (
     <QueryView query={query}>
       {(redemption) => {
-        const provider = getRewardMeta(redemption.reward.id).providerName;
+        const provider = reward.data?.providerName ?? 'the provider';
         const held = redemption.hold?.miles ?? redemption.miles;
-        const balance = redemption.hold?.balanceIfDeclined ?? mockWallet.available;
+        const balance = redemption.hold?.balanceIfDeclined ?? available;
         const request = redemption.request;
         return (
           <CheckoutScreen
@@ -29,7 +33,7 @@ export default function AwaitingProviderScreen() {
             footer={
               <BottomBar
                 caption="Miles balance now"
-                value={`${miles(mockWallet.available - held)} miles`}
+                value={`${miles(available)} miles`}
                 action="View wallet"
                 onPress={() => router.replace('/wallet')}
               />

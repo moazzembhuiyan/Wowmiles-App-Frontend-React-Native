@@ -10,14 +10,17 @@ import {
   AuthHeading,
 } from '@/components/figma-auth';
 import { useToast } from '@/components/toast';
+import { submitAgency, type AgencyDocument } from '@/lib/api/auth';
+import { ApiError } from '@/lib/api/client';
 
 const agencyTypes = ['Travel agency', 'Tour operator', 'Corporate travel'];
 
 export default function AgencyVerificationScreen() {
-  const [agencyName, setAgencyName] = useState('Beverly Travel Ltd.');
+  const [agencyName, setAgencyName] = useState('');
   const [agencyType, setAgencyType] = useState('');
-  const [registration, setRegistration] = useState('IATA 23-4 5678 9');
-  const [documentName, setDocumentName] = useState('');
+  const [registration, setRegistration] = useState('');
+  const [document, setDocument] = useState<AgencyDocument | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const showToast = useToast();
 
   async function chooseDocument() {
@@ -26,19 +29,36 @@ export default function AgencyVerificationScreen() {
         type: ['application/pdf', 'image/*'],
         copyToCacheDirectory: true,
       });
-      if (!result.canceled) setDocumentName(result.assets[0].name);
+      if (!result.canceled) {
+        const asset = result.assets[0];
+        setDocument({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType });
+      }
     } catch (error) {
       showToast('Could not open files', 'Please try selecting your trade licence again.');
       console.error('Failed to select agency document', error);
     }
   }
 
-  function submitForVerification() {
-    if (!agencyName.trim() || !agencyType || !registration.trim() || !documentName) {
+  async function submitForVerification() {
+    if (submitting) return;
+    if (!agencyName.trim() || !registration.trim() || !document) {
       showToast('Complete agency details', 'Add your agency details and upload a trade licence before submitting.');
       return;
     }
-    router.push('/(auth)/otp');
+    setSubmitting(true);
+    try {
+      await submitAgency({
+        agencyName,
+        method: agencyType === 'Tour operator' ? 'chamber_of_commerce' : 'iata',
+        documentNumber: registration,
+        document,
+      });
+      router.push('/(auth)/otp');
+    } catch (error) {
+      showToast('Could not submit your agency', error instanceof ApiError ? error.message : 'Something went wrong. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -49,7 +69,7 @@ export default function AgencyVerificationScreen() {
           eyebrow="Next"
           title="Confirm your email"
           buttonLabel="Continue"
-          onPress={submitForVerification}
+          onPress={() => void submitForVerification()}
         />
       }
     >
@@ -94,7 +114,6 @@ export default function AgencyVerificationScreen() {
           placeholder="Registration number"
           autoCapitalize="characters"
         />
-        <AuthField label="Country of operation" value="Bangladesh" editable={false} />
         <Pressable
           accessibilityRole="button"
           onPress={chooseDocument}
@@ -103,7 +122,7 @@ export default function AgencyVerificationScreen() {
           <Upload color="#39479F" size={17} />
           <View className="ml-2.5 flex-1">
             <Text className="text-[13px] font-semibold text-[#39479F]">
-              {documentName || 'Upload the document'}
+              {document?.name || 'Upload the document'}
             </Text>
             <Text className="mt-0.5 text-[12px] text-[#7C8391]">PDF or JPG, up to 10 MB</Text>
           </View>

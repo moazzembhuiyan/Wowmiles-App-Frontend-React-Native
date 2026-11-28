@@ -1,22 +1,52 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
+import { useQuery } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import { CircleHelp, Info, Pause, Play, X } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { courseModules, featuredCourse } from './academy-data';
-import { AcademyActionBar, AcademyScreenFrame, ScrollContent } from './academy-ui';
+import { AcademyActionBar, AcademyScreenFrame, AcademyStatusFrame, ScrollContent } from './academy-ui';
+import { ErrorState, LoadingState } from '@/components/states';
+import { getLessons, type Lesson } from '@/lib/api/academy';
 
 export function AcademyPlayerScreen({
-  moduleIndex,
+  courseId,
+  lessonId,
   onClose,
   onComplete,
+  onStartQuiz,
 }: {
-  moduleIndex: number;
+  courseId: string;
+  lessonId: string;
   onClose: () => void;
-  onComplete: () => void;
+  onComplete: (lesson: Lesson) => Promise<void>;
+  onStartQuiz: () => void;
 }) {
   const [playing, setPlaying] = useState(false);
-  const lesson = courseModules[moduleIndex];
+  const [saving, setSaving] = useState(false);
+  const lessonsQuery = useQuery({ queryKey: ['academy', 'lessons', courseId], queryFn: () => getLessons(courseId) });
+  const lesson = lessonsQuery.data?.items.find((item) => item.id === lessonId);
+
+  if (!lesson || !lessonsQuery.data) {
+    return (
+      <AcademyStatusFrame onBack={onClose}>
+        {lessonsQuery.isError || lessonsQuery.data ? (
+          <ErrorState
+            message={lessonsQuery.isError ? lessonsQuery.error.message : 'This lesson is no longer available.'}
+            onRetry={() => void lessonsQuery.refetch()}
+          />
+        ) : (
+          <LoadingState />
+        )}
+      </AcademyStatusFrame>
+    );
+  }
+
+  const isQuiz = lesson.type === 'quiz';
+  const remaining = lesson.total - lesson.index;
+  const togglePlayback = () => {
+    setPlaying((current) => !current);
+    if (!playing && lesson.media) void Linking.openURL(lesson.media).catch(() => setPlaying(false));
+  };
 
   return (
     <AcademyScreenFrame background="#111522">
@@ -31,12 +61,12 @@ export function AcademyPlayerScreen({
           >
             <X color="white" size={17} />
           </Pressable>
-          <Text className="text-[9px] font-medium text-white">Module {moduleIndex + 1} of 6</Text>
+          <Text className="text-[9px] font-medium text-white">Lesson {lesson.index} of {lesson.total}</Text>
           <Pressable accessibilityRole="button" accessibilityLabel="Course information" className="h-9 w-9 items-center justify-center rounded-full bg-white/15">
             <Info color="white" size={15} />
           </Pressable>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel={playing ? 'Pause lesson' : 'Play lesson'} onPress={() => setPlaying((current) => !current)}>
+        <Pressable accessibilityRole="button" accessibilityLabel={playing ? 'Pause lesson' : 'Play lesson'} onPress={togglePlayback}>
           <LinearGradient
             colors={['#171D2C', '#353C51']}
             start={{ x: 0, y: 0 }}
@@ -51,11 +81,11 @@ export function AcademyPlayerScreen({
           </LinearGradient>
         </Pressable>
         <View className="mt-2 h-[3px] rounded-full bg-white/20">
-          <View className="h-full w-[42%] rounded-full bg-[#FFB91F]" />
+          <View className={`h-full rounded-full bg-[#FFB91F] ${lesson.isCompleted ? 'w-full' : 'w-0'}`} />
         </View>
         <View className="mt-1 flex-row justify-between">
-          <Text className="text-[8px] text-white/55">3:52</Text>
-          <Text className="text-[8px] text-white/55">10:04</Text>
+          <Text className="text-[8px] text-white/55">0:00</Text>
+          <Text className="text-[8px] text-white/55">{lesson.duration} min</Text>
         </View>
       </View>
 
@@ -63,26 +93,41 @@ export function AcademyPlayerScreen({
         <ScrollContent className="px-3 pt-3">
           <Text className="text-[18px] font-bold leading-[23px] text-[#202638]">{lesson.title}</Text>
           <Text className="mt-1 text-[10px] leading-[16px] text-[#747C8D]">
-            The three objections agents hear most: is it not much better than Economy, the price gap is too wide, and my client will wait for a Business sale. Each is answered with a concrete comparison.
+            {lesson.moduleTitle} · {lesson.type} · {lesson.duration} min
           </Text>
+          {lesson.keyTopics?.length ? (
+            <View className="mt-2">
+              {lesson.keyTopics.map((topic) => (
+                <Text key={topic} className="mt-0.5 text-[10px] leading-[16px] text-[#747C8D]">• {topic}</Text>
+              ))}
+            </View>
+          ) : null}
           <View className="mt-3 flex-row items-start rounded-[12px] bg-[#FFF7E8] px-2.5 py-2.5">
             <CircleHelp color="#D28B00" size={14} />
             <Text className="ml-2 flex-1 text-[9px] leading-[14px] text-[#624C24]">
-              Finish all 6 modules and pass the quiz to earn 300 miles, awarded once.
+              {isQuiz ? `Pass with ${lesson.passMark ?? 80}% to complete this lesson. Miles are awarded once, when the course is complete.` : 'Finish every lesson and pass the quiz to earn the course miles, awarded once.'}
             </Text>
           </View>
           <View className="mt-4 flex-row items-center">
             <View className="mr-2 h-7 w-7 items-center justify-center rounded-full bg-[#E9EBF4]">
               <Info color="#4145B6" size={14} />
             </View>
-            <Text className="text-[9px] text-[#747C8D]">{featuredCourse.partner} · {featuredCourse.title}</Text>
+            <Text className="text-[9px] text-[#747C8D]">{lesson.moduleTitle}</Text>
           </View>
         </ScrollContent>
         <AcademyActionBar
-          eyebrow={`MODULE ${moduleIndex + 1} OF 6`}
-          title={`${5 - moduleIndex} remaining after this`}
-          actionLabel="Mark complete"
-          onPress={onComplete}
+          eyebrow={`LESSON ${lesson.index} OF ${lesson.total}`}
+          title={`${remaining} remaining after this`}
+          actionLabel={isQuiz ? (lesson.isCompleted ? 'Retake quiz' : 'Start quiz') : lesson.isCompleted ? 'Next' : 'Mark complete'}
+          disabled={saving}
+          onPress={() => {
+            if (isQuiz) {
+              onStartQuiz();
+              return;
+            }
+            setSaving(true);
+            void onComplete(lesson).finally(() => setSaving(false));
+          }}
         />
       </View>
     </AcademyScreenFrame>

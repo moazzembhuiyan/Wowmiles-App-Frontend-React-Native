@@ -5,56 +5,103 @@ import { AcademyPlayerScreen } from './academy-player-screen';
 import { AcademyQuizScreen } from './academy-quiz-screen';
 import { AcademyQuizResultScreen } from './academy-quiz-result-screen';
 import { AcademyCertificateScreen } from './academy-certificate-screen';
-import { courseModules, quizQuestions } from './academy-data';
 import { useTabBarVisibility } from '@/components/tab-bar-visibility';
 import { useToast } from '@/components/toast';
 import { exportCertificate } from './academy-certificate-export';
+import {
+  completeCourse,
+  completeLesson,
+  getCourse,
+  getLessons,
+  type Certificate,
+  type CourseCompletion,
+  type Lesson,
+  type QuizAttempt,
+} from '@/lib/api/academy';
+import { ApiError, queryClient } from '@/lib/api/client';
 
 type AcademyStage = 'home' | 'course' | 'player' | 'quiz' | 'result' | 'certificate';
 
+type QuizOutcome = { attempt: QuizAttempt; lesson: Lesson; completion: CourseCompletion | null };
+
+const lessonsKey = (courseId: string) => ['academy', 'lessons', courseId] as const;
+const courseKey = (courseId: string) => ['academy', 'course', courseId] as const;
+
+/**
+ * Ids live in state because the Academy is one tab route with an in-screen stage machine;
+ * every id is validated with `requireId` inside the API functions before it reaches a path.
+ */
 export function AcademyFlow() {
   const setTabBarHidden = useTabBarVisibility();
   const showToast = useToast();
   const [stage, setStage] = useState<AcademyStage>('home');
-  const [activeModule, setActiveModule] = useState(3);
-  const [questionIndex, setQuestionIndex] = useState(1);
-  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
-  const [correctAnswers, setCorrectAnswers] = useState(1);
-  const [finalScore, setFinalScore] = useState(4);
-  const [courseCompleted, setCourseCompleted] = useState(false);
+  const [courseId, setCourseId] = useState<string | null>(null);
+  const [lessonId, setLessonId] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<QuizOutcome | null>(null);
+  const [certificate, setCertificate] = useState<Certificate | null>(null);
 
   useEffect(() => {
     setTabBarHidden(stage !== 'home');
     return () => setTabBarHidden(false);
   }, [setTabBarHidden, stage]);
 
-  const startQuiz = () => {
-    setQuestionIndex(1);
-    setSelectedAnswer(null);
-    setCorrectAnswers(1);
-    setStage('quiz');
+  const openCourse = (id: string) => {
+    setCourseId(id);
+    setStage('course');
   };
 
-  const advanceQuiz = () => {
-    if (selectedAnswer === null) return;
-    const isCorrect = selectedAnswer === quizQuestions[questionIndex].correctIndex;
-    const score = correctAnswers + Number(isCorrect);
-    setCorrectAnswers(score);
+  const openLesson = (id: string) => {
+    setLessonId(id);
+    setStage('player');
+  };
 
-    if (questionIndex === quizQuestions.length - 1) {
-      setFinalScore(score);
-      setCourseCompleted(score >= 4);
-      setStage('result');
-      return;
+  /** Credits the course once every lesson is done, then routes to the next lesson, the certificate, or the course. */
+  const advanceAfterLesson = async (id: string): Promise<CourseCompletion | null> => {
+    const lessons = await queryClient.fetchQuery({ queryKey: lessonsKey(id), queryFn: () => getLessons(id), staleTime: 0 });
+    const next = lessons.items.find((item) => !item.isCompleted);
+    if (next) return null;
+    const course = await queryClient.fetchQuery({ queryKey: courseKey(id), queryFn: () => getCourse(id), staleTime: 0 });
+    if (course.myProgress.isComplete) return null;
+    return completeCourse(id);
+  };
+
+  const handleLessonCompleted = async (lesson: Lesson) => {
+    if (!courseId) return;
+    try {
+      if (!lesson.isCompleted) await completeLesson({ courseId, lesson });
+      const completion = await advanceAfterLesson(courseId);
+      if (completion) {
+        showToast('Course completed', `+${completion.milesAwarded} WowMiles credited.`, 'success');
+        setStage(completion.certificate ? 'certificate' : 'course');
+        return;
+      }
+      const lessons = await queryClient.fetchQuery({ queryKey: lessonsKey(courseId), queryFn: () => getLessons(courseId), staleTime: 0 });
+      const next = lessons.items.find((item) => !item.isCompleted);
+      if (next) openLesson(next.id);
+      else setStage('course');
+    } catch (error) {
+      showToast('Could not save progress', error instanceof ApiError ? error.message : 'Please try again.', 'error');
     }
+  };
 
-    setQuestionIndex((current) => current + 1);
-    setSelectedAnswer(null);
+  const handleAttempt = async (attempt: QuizAttempt, lesson: Lesson) => {
+    let completion: CourseCompletion | null = null;
+    if (attempt.isPassed && courseId) {
+      try {
+        await completeLesson({ courseId, lesson });
+        completion = await advanceAfterLesson(courseId);
+      } catch (error) {
+        showToast('Could not save progress', error instanceof ApiError ? error.message : 'Please try again.', 'error');
+      }
+    }
+    setOutcome({ attempt, lesson, completion });
+    setStage('result');
   };
 
   const downloadCertificate = async () => {
+    if (!certificate) return;
     try {
-      const result = await exportCertificate();
+      const result = await exportCertificate(certificate);
       if (result === 'print') {
         showToast('Certificate ready', 'Choose Save as PDF in the print dialog.', 'success');
       } else if (result === 'unavailable') {
@@ -66,82 +113,61 @@ export function AcademyFlow() {
     }
   };
 
-  const openModule = (moduleIndex: number) => {
-    if (courseModules[moduleIndex]?.status === 'locked' && !courseCompleted) return;
-    setActiveModule(moduleIndex);
-    setStage('player');
-  };
-
-  if (stage === 'course') {
+  if (stage === 'course' && courseId) {
     return (
       <AcademyCourseScreen
-        courseCompleted={courseCompleted}
+        courseId={courseId}
         onBack={() => setStage('home')}
-        onContinue={() => {
-          if (courseCompleted) {
-            setStage('certificate');
-          } else {
-            setActiveModule(3);
-            setStage('player');
-          }
-        }}
-        onSelectModule={openModule}
+        onOpenLesson={openLesson}
+        onOpenCertificate={() => setStage('certificate')}
       />
     );
   }
 
-  if (stage === 'player') {
+  if (stage === 'player' && courseId && lessonId) {
     return (
       <AcademyPlayerScreen
-        moduleIndex={activeModule}
+        courseId={courseId}
+        lessonId={lessonId}
         onClose={() => setStage('course')}
-        onComplete={startQuiz}
+        onComplete={handleLessonCompleted}
+        onStartQuiz={() => setStage('quiz')}
       />
     );
   }
 
-  if (stage === 'quiz') {
+  if (stage === 'quiz' && lessonId) {
     return (
       <AcademyQuizScreen
-        questionIndex={questionIndex}
-        selectedAnswer={selectedAnswer}
-        onSelectAnswer={setSelectedAnswer}
-        onNext={advanceQuiz}
+        courseId={courseId ?? ''}
+        lessonId={lessonId}
+        onSubmitted={(attempt, lesson) => void handleAttempt(attempt, lesson)}
         onClose={() => setStage('player')}
       />
     );
   }
 
-  if (stage === 'result') {
+  if (stage === 'result' && outcome) {
     return (
       <AcademyQuizResultScreen
-        score={finalScore}
-        onAction={() => {
-          if (finalScore >= 4) {
-            setStage('certificate');
-          } else {
-            startQuiz();
-          }
-        }}
+        attempt={outcome.attempt}
+        lesson={outcome.lesson}
+        completion={outcome.completion}
+        onAction={() => setStage(outcome.attempt.isPassed ? (outcome.completion?.certificate ? 'certificate' : 'course') : 'quiz')}
       />
     );
   }
 
-  if (stage === 'certificate') {
+  if (stage === 'certificate' && courseId) {
     return (
       <AcademyCertificateScreen
+        courseId={courseId}
         onBack={() => setStage('home')}
+        onLoaded={setCertificate}
         onDownload={() => void downloadCertificate()}
       />
     );
   }
 
-  return (
-    <AcademyHomeScreen
-      courseCompleted={courseCompleted}
-      onResume={() => setStage(courseCompleted ? 'certificate' : 'course')}
-      onOpenCertificate={() => setStage('certificate')}
-      onUnavailable={(title) => showToast('Course coming soon', `${title} will be available in a future release.`, 'info')}
-    />
-  );
+  return <AcademyHomeScreen onOpenCourse={openCourse} onOpenCertificate={(id) => { setCourseId(id); setStage('certificate'); }} />;
 }

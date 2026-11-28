@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { Bell, BookOpen, CalendarDays, CheckCircle2, Gift, TriangleAlert } from 'lucide-react-native';
 import { Pressable, Text, View } from 'react-native';
-import { AppNotification, NotificationCategory, appNotifications } from '@/components/miles-data';
+import { QueryView } from '@/components/states';
+import { getNotifications, markAllNotificationsRead, markNotificationRead, timeAgo, type AppNotification, type NotificationCategory } from '@/lib/api/notifications';
 import { MilesHeader, MilesScreen, Pill } from '@/components/miles-ui';
 
 type NotificationTab = 'All' | NotificationCategory;
@@ -22,24 +24,20 @@ function NotificationIcon({ notification }: { notification: AppNotification }) {
   }
 }
 
+const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
+
 export default function NotificationsScreen() {
   const [tab, setTab] = useState<NotificationTab>('All');
-  const [unreadIds, setUnreadIds] = useState(() => new Set(appNotifications.slice(0, 3).map(({ id }) => id)));
+  const query = useQuery({ queryKey: ['notifications'], queryFn: getNotifications });
+  const unreadCount = (query.data ?? []).filter((notification) => !notification.read).length;
 
   const notifications = useMemo(
-    () =>
-      appNotifications.filter(
-        (notification) => tab === 'All' || notification.category === tab,
-      ),
-    [tab],
+    () => (query.data ?? []).filter((notification) => tab === 'All' || notification.category === tab),
+    [query.data, tab],
   );
 
   function openNotification(notification: AppNotification) {
-    setUnreadIds((ids) => {
-      const next = new Set(ids);
-      next.delete(notification.id);
-      return next;
-    });
+    if (!notification.read) void markNotificationRead(notification.id).catch(() => undefined);
     router.push({ pathname: '/notification-detail', params: { id: notification.id } });
   }
 
@@ -47,11 +45,11 @@ export default function NotificationsScreen() {
     <MilesScreen>
       <MilesHeader
         title="Notifications"
-        action={unreadIds.size ? 'Mark all read' : undefined}
-        onAction={() => setUnreadIds(new Set())}
+        action={unreadCount ? 'Mark all read' : undefined}
+        onAction={() => void markAllNotificationsRead().catch(() => undefined)}
       />
-      {unreadIds.size ? (
-        <Text className="-mt-3 mb-3 text-[13px] text-[#747B8B]">{unreadIds.size} unread</Text>
+      {unreadCount ? (
+        <Text className="-mt-3 mb-3 text-[13px] text-[#747B8B]">{unreadCount} unread</Text>
       ) : null}
 
       <View className="mb-4 flex-row">
@@ -60,11 +58,13 @@ export default function NotificationsScreen() {
         ))}
       </View>
 
-      {notifications.length ? (
+      <QueryView query={query}>
+        {() =>
+          notifications.length ? (
         <>
           {(['Today', 'Earlier'] as const).map((period) => {
             const group = notifications.filter((notification) =>
-              period === 'Earlier' ? notification.earlier : !notification.earlier,
+              period === 'Earlier' ? !isToday(notification.date) : isToday(notification.date),
             );
             if (!group.length) return null;
 
@@ -73,7 +73,7 @@ export default function NotificationsScreen() {
                 <Text className="mb-2 text-[12px] font-medium tracking-[0.4px] text-muted">{period.toUpperCase()}</Text>
                 <View className="overflow-hidden rounded-[16px] bg-white px-3.5">
                   {group.map((notification, index) => {
-                    const isUnread = unreadIds.has(notification.id);
+                    const isUnread = !notification.read;
                     return (
                       <Pressable
                         key={notification.id}
@@ -88,7 +88,7 @@ export default function NotificationsScreen() {
                         <View className="flex-1">
                           <Text className="text-[15px] font-semibold text-ink">{notification.title}</Text>
                           <Text className="mt-1 text-[13px] leading-[19px] text-muted">{notification.message}</Text>
-                          <Text className="mt-1 text-[12px] text-muted">{notification.time}</Text>
+                          <Text className="mt-1 text-[12px] text-muted">{timeAgo(notification.date)}</Text>
                         </View>
                         {isUnread ? <View className="ml-2 mt-1.5 h-2 w-2 rounded-full bg-brand" /> : null}
                       </Pressable>
@@ -107,7 +107,9 @@ export default function NotificationsScreen() {
             Updates about your miles, bookings and events will appear here.
           </Text>
         </View>
-      )}
+      )
+        }
+      </QueryView>
     </MilesScreen>
   );
 }

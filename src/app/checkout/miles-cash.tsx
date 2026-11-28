@@ -9,7 +9,8 @@ import { stepAfterAmount } from '@/components/checkout-flow';
 import { MilesSlider } from '@/components/miles-slider';
 import { BottomBar, CheckoutScreen, miles, SummaryCard } from '@/components/money-ui';
 import { ErrorState } from '@/components/states';
-import { getReward } from '@/components/rewards-data';
+import { RewardGate } from '@/components/reward-gate';
+import type { Reward } from '@/lib/api/rewards';
 import {
   formatEur,
   getCheckoutDraft,
@@ -18,15 +19,20 @@ import {
   previewQuote,
   updateCheckoutDraft,
 } from '@/lib/api/redemptions';
+import { getWallet } from '@/lib/api/wallet';
 
 const MILES_PER_EUR = 10;
 
-export default function MilesCashScreen() {
+export default function MilesCashScreenRoute() {
   const { id } = useLocalSearchParams<{ id?: string }>();
+  return <RewardGate id={id}>{(reward) => <MilesCashScreen reward={reward} />}</RewardGate>;
+}
+
+function MilesCashScreen({ reward }: { reward: Reward }) {
   const insets = useSafeAreaInsets();
-  const reward = getReward(id);
-  const max = maxMilesFor(reward.cost);
-  const draft = getCheckoutDraft(reward.id);
+  const wallet = useQuery({ queryKey: ['wallet'], queryFn: getWallet });
+  const max = maxMilesFor(reward.cost, wallet.data?.available ?? reward.cost);
+  const draft = getCheckoutDraft(reward);
   const [, setTick] = useState(0);
   useFocusEffect(useCallback(() => setTick((value) => value + 1), []));
   const [selected, setSelected] = useState(() =>
@@ -47,12 +53,13 @@ export default function MilesCashScreen() {
 
   function next() {
     if (!quote.data) return;
-    updateCheckoutDraft(reward.id, {
+    updateCheckoutDraft(reward, {
       miles: selected,
+      cashMinor: quote.data.cashMinor,
       allocationMode: quote.data.allocationMode,
       allocation: quote.data.allocation,
     });
-    router.push(stepAfterAmount(reward.id, false));
+    router.push(stepAfterAmount(reward, false));
   }
 
   const cash = quote.data ? formatEur(quote.data.cashMinor) : '…';

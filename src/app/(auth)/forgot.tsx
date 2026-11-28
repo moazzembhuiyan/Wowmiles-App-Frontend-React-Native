@@ -10,24 +10,39 @@ import {
   AuthStatusBar,
 } from '@/components/figma-auth';
 import { useToast } from '@/components/toast';
+import { requestPasswordReset } from '@/lib/api/auth';
+import { ApiError } from '@/lib/api/client';
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const showToast = useToast();
+
+  async function sendCode() {
+    if (submitting) return;
+    if (!email.includes('@')) {
+      showToast('Enter a valid email', 'Use the work email registered to your account.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await requestPasswordReset(email);
+      router.push('/(auth)/reset');
+    } catch (error) {
+      showToast('Could not send the code', error instanceof ApiError ? error.message : 'Something went wrong. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <AuthFormScreen
       footer={
         <AuthFooter
           eyebrow="Sending to"
           title={email || 'your verified agency email'}
-          buttonLabel="Send link"
-          onPress={() => {
-            if (!email.includes('@')) {
-              showToast('Enter a valid email', 'Use the work email registered to your account.');
-              return;
-            }
-            router.push('/(auth)/reset');
-          }}
+          buttonLabel="Send code"
+          onPress={() => void sendCode()}
         />
       }
     >
@@ -36,7 +51,7 @@ export default function ForgotPasswordScreen() {
         <View className="mt-5">
           <AuthHeading
             title="Reset your password"
-            description="Enter the email linked to your WowMiles account and we’ll send a reset link."
+            description="Enter the email linked to your WowMiles account and we’ll send a 6-digit reset code."
           />
         </View>
         <AuthField
@@ -48,7 +63,7 @@ export default function ForgotPasswordScreen() {
         />
         <AuthStatusBar>
           <Text className="text-[12px] leading-[17px] text-[#49729A]">
-            We only send reset links to verified agency email addresses.
+            We only send reset codes to verified agency email addresses.
           </Text>
         </AuthStatusBar>
         <View className="mt-3 flex-row justify-center">

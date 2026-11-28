@@ -1,22 +1,39 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
 import { Plane } from 'lucide-react-native';
 import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuthHero } from '@/components/figma-auth';
+import { fetchAuthRoute } from '@/lib/api/auth';
+import { useAuth } from '@/lib/auth/auth-context';
 
 export default function SplashScreen() {
+  const { status } = useAuth();
+  const [minimumElapsed, setMinimumElapsed] = useState(false);
+
   useEffect(() => {
-    const timeout = setTimeout(() => router.replace('/(auth)/onboarding'), 1800);
+    const timeout = setTimeout(() => setMinimumElapsed(true), 1800);
     return () => clearTimeout(timeout);
   }, []);
+
+  useEffect(() => {
+    if (!minimumElapsed || status === 'loading') return;
+    if (status === 'signedOut') {
+      router.replace('/(auth)/onboarding');
+      return;
+    }
+    // A restored session resumes where its agency verification stands; offline it opens the app.
+    fetchAuthRoute()
+      .catch(() => '/(tabs)' as const)
+      .then((route) => router.replace(route));
+  }, [minimumElapsed, status]);
 
   return (
     <SafeAreaView className="w-full max-w-[440px] flex-1 self-center bg-[#11184F]">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Continue to WowMiles"
-        onPress={() => router.replace('/(auth)/onboarding')}
+        onPress={() => status === 'signedOut' && router.replace('/(auth)/onboarding')}
         className="flex-1"
       >
         <AuthHero className="flex-1 items-center justify-center">

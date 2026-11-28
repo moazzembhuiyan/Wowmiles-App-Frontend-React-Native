@@ -5,7 +5,9 @@ import { ArrowLeft, LockKeyhole, Search } from 'lucide-react-native';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { rewardCatalog } from '@/components/rewards-data';
+import { useQuery } from '@tanstack/react-query';
+import { ErrorState, LoadingState } from '@/components/states';
+import { getRewards } from '@/lib/api/rewards';
 
 const categories = ['All', 'Travel', 'Experiences', 'Merch'] as const;
 type RewardCategory = (typeof categories)[number];
@@ -15,12 +17,14 @@ export default function RewardsScreen() {
   const [category, setCategory] = useState<RewardCategory>('All');
   const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState('');
+  const query = useQuery({ queryKey: ['rewards'], queryFn: getRewards });
+  const rewards = query.data?.items;
   const filtered = useMemo(
-    () => rewardCatalog.filter((reward) =>
+    () => (rewards ?? []).filter((reward) =>
       (category === 'All' || reward.category === category) &&
       reward.title.toLowerCase().includes(search.toLowerCase()),
     ),
-    [category, search],
+    [rewards, category, search],
   );
 
   return (
@@ -92,7 +96,7 @@ export default function RewardsScreen() {
               </Text>
               <View className="mt-1 flex-row items-baseline">
                 <Text className="text-[36px] font-bold leading-[42px] tracking-[-0.8px] text-white">
-                  48,500
+                  {query.data ? query.data.available.toLocaleString('en-US') : '…'}
                 </Text>
                 <Text className="ml-2 text-[13px] text-[#D8DAF2]">miles</Text>
               </View>
@@ -137,17 +141,18 @@ export default function RewardsScreen() {
               })}
             </ScrollView>
 
+            {query.isPending ? <LoadingState label="Loading rewards…" /> : null}
+            {query.isError ? <ErrorState message={query.error.message} onRetry={() => void query.refetch()} /> : null}
             <View className="flex-row flex-wrap justify-between">
               {filtered.map((reward) => {
-                const { id, title, cost, Icon, color } = reward;
-                const locked = 'locked' in reward && reward.locked;
+                const { id, title, cost, Icon, color, locked, lockedTier } = reward;
                 return (
                   <Pressable
                     key={id}
                     accessibilityRole="button"
-                    accessibilityLabel={`${title}${locked ? ', Platinum reward' : `, ${cost.toLocaleString()} miles`}`}
+                    accessibilityLabel={`${title}${locked ? `, ${lockedTier} reward` : `, ${cost.toLocaleString()} miles`}`}
                     onPress={() => {
-                      if (locked) router.push('/tier-benefits');
+                      if (locked) router.push({ pathname: '/tier-benefits', params: { tier: lockedTier?.toLowerCase() } });
                       else router.push({ pathname: '/reward-detail', params: { id } });
                     }}
                     className="mb-4 w-[48.5%]"
@@ -170,7 +175,7 @@ export default function RewardsScreen() {
                     {locked ? (
                       <View className="absolute left-2 top-2 flex-row items-center rounded-full bg-[#1B2032]/65 px-2 py-1">
                         <LockKeyhole color="white" size={10} />
-                        <Text className="ml-1 text-[10px] font-medium text-white">Platinum</Text>
+                        <Text className="ml-1 text-[10px] font-medium text-white">{lockedTier}</Text>
                       </View>
                     ) : null}
                     <View className="absolute bottom-3 left-3 h-8 w-8 items-center justify-center">
@@ -181,7 +186,7 @@ export default function RewardsScreen() {
                     {title}
                   </Text>
                   {locked ? (
-                    <Text className="mt-1 text-[11px] text-[#747B8B]">Platinum members only</Text>
+                    <Text className="mt-1 text-[11px] text-[#747B8B]">{lockedTier} members only</Text>
                   ) : (
                     <Text className="mt-1 text-[13px] font-semibold text-[#A85F05]">
                       {cost.toLocaleString()}
@@ -192,7 +197,7 @@ export default function RewardsScreen() {
                 );
               })}
             </View>
-            {filtered.length === 0 ? (
+            {query.isSuccess && filtered.length === 0 ? (
               <View className="items-center py-10">
                 <Text className="text-[15px] font-semibold text-[#202638]">No rewards found</Text>
                 <Text className="mt-1 text-[13px] text-[#747B8B]">Try a different search or category.</Text>

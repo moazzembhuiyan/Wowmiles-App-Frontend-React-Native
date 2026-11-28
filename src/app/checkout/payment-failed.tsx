@@ -3,11 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { BottomBar, CheckoutScreen, FootNote, miles, NextSteps, OutcomeHero, SummaryCard } from '@/components/money-ui';
 import { QueryView } from '@/components/states';
 import { formatEur, getRedemption } from '@/lib/api/redemptions';
-import { mockWallet } from '@/lib/api/wallet';
+import { getWallet } from '@/lib/api/wallet';
 
 export default function PaymentFailedScreen() {
   const { rid } = useLocalSearchParams<{ rid?: string }>();
   const query = useQuery({ queryKey: ['redemption', rid], queryFn: () => getRedemption(String(rid)), enabled: !!rid });
+  const wallet = useQuery({ queryKey: ['wallet'], queryFn: getWallet });
+  const available = wallet.data?.available ?? 0;
 
   return (
     <QueryView query={query}>
@@ -17,9 +19,14 @@ export default function PaymentFailedScreen() {
           footer={
             <BottomBar
               caption="Miles balance"
-              value={`${miles(mockWallet.available)} miles`}
+              value={`${miles(available)} miles`}
               action="Try another card"
-              onPress={() => router.replace({ pathname: '/checkout/payment', params: { id: redemption.reward.id } })}
+              onPress={() =>
+                router.replace({
+                  pathname: '/checkout/payment',
+                  params: { id: redemption.reward.id, ...(redemption.payment?.canRetry ? { retry: redemption.id } : {}) },
+                })
+              }
             />
           }
         >
@@ -36,7 +43,7 @@ export default function PaymentFailedScreen() {
                 sub: redemption.payment?.card ? `${redemption.payment.card.brand} ending ${redemption.payment.card.last4} · declined` : 'Declined',
                 value: formatEur(redemption.cashMinor),
               },
-              { label: 'Miles balance', value: miles(mockWallet.available), accent: true },
+              { label: 'Miles balance', value: miles(available), accent: true },
             ]}
           />
           <NextSteps

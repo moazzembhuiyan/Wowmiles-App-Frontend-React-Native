@@ -1,11 +1,12 @@
-import { ApiError, mockResponse } from './client';
+import { apiGet, apiPost, apiRequest, queryClient, requireId } from './client';
+import { fetchProfileSummary } from './profile';
 
 /**
  * Support data layer. Mirrors backend `docs/apis_guideline.md` T64 and section 4g:
  *   GET  /tickets?tab=open|resolved|all    -> fetchTickets
  *   GET  /tickets/:id (+ messages)         -> fetchTicket
  *   POST /tickets                          -> createTicket
- *   POST /messages (chat message)          -> sendTicketMessage
+ *   GET  /messages/chat/:id, POST /messages -> ticket messages, sendTicketMessage
  */
 
 export type TicketCategory = 'booking' | 'miles' | 'redemption' | 'account' | 'other';
@@ -39,6 +40,7 @@ export type TicketMessage = {
   createdAt: string;
 };
 
+/** `replyEtaMinutes` is the time to the reply deadline (`slaDueAt`), or the tier reply window. */
 export type TicketDetail = Ticket & { messages: TicketMessage[]; replyEtaMinutes: number };
 
 export type TicketsResponse = {
@@ -47,109 +49,113 @@ export type TicketsResponse = {
   replyWindowLabel: string;
 };
 
-export type NewTicketInput = { subject: string; category: TicketCategory; message: string };
+export type NewTicketInput = {
+  subject: string;
+  category: TicketCategory;
+  message: string;
+  /** One key per submit action; reuse it when the same request is retried. */
+  idempotencyKey: string;
+};
 
-const details: TicketDetail[] = [
-  {
-    id: '665f1a2b3c4d5e6f7a8b9c90',
-    publicId: 'TCK-1042',
-    subject: 'Booking WM-47998 reversal',
-    category: 'booking',
-    status: 'open',
-    waitingOn: 'you',
-    createdAt: '2026-11-24T09:12:00.000Z',
-    updatedAt: '2026-11-26T09:16:00.000Z',
-    resolvedAt: null,
-    replyEtaMinutes: 5,
-    lastMessage: { text: 'Just uploaded it to the appeal.', at: '2026-11-26T09:16:00.000Z', from: 'requester' },
-    messages: [
-      { id: 'm1', from: 'admin', text: 'Hi Daniel, thanks for getting in touch. I can see booking WM-47998 was reversed by Anantara on 2 October.', createdAt: '2026-11-26T09:12:00.000Z' },
-      { id: 'm2', from: 'requester', text: 'The client rescheduled to January and Anantara reissued it under the same reference.', createdAt: '2026-11-26T09:14:00.000Z' },
-      { id: 'm3', from: 'admin', text: 'Understood. Could you attach the reissued confirmation? I will pass it to the supplier team today.', createdAt: '2026-11-26T09:15:00.000Z' },
-      { id: 'm4', from: 'requester', text: 'Just uploaded it to the appeal.', createdAt: '2026-11-26T09:16:00.000Z' },
-    ],
-  },
-  {
-    id: '665f1a2b3c4d5e6f7a8b9c91',
-    publicId: 'TCK-1017',
-    subject: 'Agency name correction',
-    category: 'account',
-    status: 'resolved',
-    waitingOn: null,
-    createdAt: '2026-09-11T08:00:00.000Z',
-    updatedAt: '2026-09-12T10:00:00.000Z',
-    resolvedAt: '2026-09-12T10:00:00.000Z',
-    replyEtaMinutes: 5,
-    lastMessage: { text: 'Your agency name has been updated.', at: '2026-09-12T10:00:00.000Z', from: 'admin' },
-    messages: [
-      { id: 'n1', from: 'requester', text: 'My agency name is misspelled on my profile.', createdAt: '2026-09-11T08:00:00.000Z' },
-      { id: 'n2', from: 'admin', text: 'Your agency name has been updated.', createdAt: '2026-09-12T10:00:00.000Z' },
-    ],
-  },
-];
+type RawTicket = {
+  id: string;
+  publicId: string;
+  subject: string;
+  category: TicketCategory;
+  status: 'open' | 'pending' | 'closed';
+  waitingOn: 'support' | 'you' | null;
+  slaHours?: number;
+  slaDueAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  lastMessage: { text: string; at: string; from: 'requester' | 'admin' } | null;
+};
 
-function toTicket(detail: TicketDetail): Ticket {
-  const { messages: _messages, replyEtaMinutes: _eta, ...ticket } = detail;
-  return ticket;
+type RawMessage = {
+  _id: string;
+  text: string | null;
+  createdAt: string;
+  sender: { _id: string; role: string } | null;
+};
+
+/** `pending` is "waiting on the agent"; `closed` is resolved. */
+const STATUS: Record<RawTicket['status'], TicketStatus> = { open: 'open', pending: 'waiting', closed: 'resolved' };
+
+function toTicket(raw: RawTicket): Ticket {
+  return {
+    id: raw.id,
+    publicId: raw.publicId,
+    subject: raw.subject,
+    category: raw.category,
+    status: STATUS[raw.status] ?? 'open',
+    waitingOn: raw.waitingOn,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    resolvedAt: raw.resolvedAt,
+    lastMessage: raw.lastMessage ?? { text: '', at: raw.updatedAt, from: 'requester' },
+  };
 }
 
+/** Reply window by tier, as the backend sets `slaHours` (platinum 4, gold 12, silver 24). */
+const TIER_SLA_HOURS: Record<string, number> = { platinum: 4, gold: 12, silver: 24 };
+
+/** `GET /tickets`. */
 export async function fetchTickets(): Promise<TicketsResponse> {
-  const sorted = [...details].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const tickets = sorted.map(toTicket);
-  return mockResponse({
+  const [res, profile] = await Promise.all([
+    apiRequest<RawTicket[]>('/tickets', { query: { tab: 'all', limit: 100 } }),
+    queryClient.fetchQuery({ queryKey: ['profile', 'summary'], queryFn: fetchProfileSummary }),
+  ]);
+  const counts = (res.meta as { counts?: { all: number; open: number; resolved: number } } | undefined)?.counts;
+  const tickets = res.data.map(toTicket);
+  const hours = TIER_SLA_HOURS[profile.tier.key] ?? 24;
+  return {
     tickets,
-    counts: {
+    counts: counts ?? {
       all: tickets.length,
       open: tickets.filter((ticket) => ticket.status !== 'resolved').length,
       resolved: tickets.filter((ticket) => ticket.status === 'resolved').length,
     },
-    replyWindowLabel: 'Gold members get a reply within 1 working day',
-  });
-}
-
-export async function fetchTicket(id: string): Promise<TicketDetail> {
-  const found = details.find((detail) => detail.id === id || detail.publicId === id);
-  if (!found) return Promise.reject(new ApiError('Ticket not found', 404, 'TICKET_NOT_FOUND'));
-  return mockResponse({ ...found, messages: [...found.messages] }, 200);
-}
-
-export async function createTicket(input: NewTicketInput): Promise<Ticket> {
-  await mockResponse(null, 450);
-  if (details.filter((detail) => detail.status !== 'resolved').length >= 10) {
-    throw new ApiError('You have too many open requests', 409, 'TOO_MANY_OPEN_TICKETS');
-  }
-  const now = new Date().toISOString();
-  const detail: TicketDetail = {
-    id: `665f1a2b3c4d5e6f7a8b9d${details.length.toString(16).padStart(2, '0')}`,
-    publicId: `TCK-${1043 + details.length}`,
-    subject: input.subject.trim(),
-    category: input.category,
-    status: 'open',
-    waitingOn: 'support',
-    createdAt: now,
-    updatedAt: now,
-    resolvedAt: null,
-    replyEtaMinutes: 5,
-    lastMessage: { text: input.message.trim(), at: now, from: 'requester' },
-    messages: [{ id: `m-${now}`, from: 'requester', text: input.message.trim(), createdAt: now }],
+    replyWindowLabel: `${profile.tier.name} members get a reply within ${hours} hours`,
   };
-  details.unshift(detail);
-  return toTicket(detail);
 }
 
+/** `GET /tickets/:id` plus its messages (`GET /messages/chat/:id`). */
+export async function fetchTicket(id: string): Promise<TicketDetail> {
+  const ticketId = requireId(id);
+  const [raw, messages] = await Promise.all([
+    apiGet<RawTicket>(`/tickets/${ticketId}`),
+    apiRequest<RawMessage[]>(`/messages/chat/${ticketId}`, { query: { sort: 'createdAt', limit: 100 } }),
+  ]);
+  const minutesLeft = raw.slaDueAt ? Math.round((new Date(raw.slaDueAt).getTime() - Date.now()) / 60_000) : null;
+  return {
+    ...toTicket(raw),
+    messages: messages.data
+      .filter((message) => message.text)
+      .map((message) => ({
+        id: message._id,
+        from: message.sender && message.sender.role !== 'admin' ? 'requester' : 'admin',
+        text: message.text as string,
+        createdAt: message.createdAt,
+      })),
+    replyEtaMinutes: minutesLeft !== null ? Math.max(1, minutesLeft) : (raw.slaHours ?? 24) * 60,
+  };
+}
+
+/** `POST /tickets` (an `Idempotency-Key` is required). */
+export async function createTicket(input: NewTicketInput): Promise<Ticket> {
+  const raw = await apiPost<RawTicket>(
+    '/tickets',
+    { subject: input.subject.trim(), category: input.category, message: input.message.trim() },
+    { idempotencyKey: input.idempotencyKey },
+  );
+  return toTicket(raw);
+}
+
+/** `POST /messages` into the ticket's chat. */
 export async function sendTicketMessage(ticketId: string, text: string): Promise<TicketMessage> {
-  await mockResponse(null, 250);
-  const found = details.find((detail) => detail.id === ticketId);
-  if (!found) throw new ApiError('Ticket not found', 404, 'TICKET_NOT_FOUND');
-  if (found.status === 'resolved') throw new ApiError('This request is resolved', 409, 'TICKET_ALREADY_CLOSED');
-  const now = new Date().toISOString();
-  const message: TicketMessage = { id: `m-${now}`, from: 'requester', text: text.trim(), createdAt: now };
-  found.messages.push(message);
-  found.updatedAt = now;
-  found.status = 'open';
-  found.waitingOn = 'support';
-  found.lastMessage = { text: message.text, at: now, from: 'requester' };
-  return message;
+  const raw = await apiPost<RawMessage>('/messages', { chatId: requireId(ticketId), text: text.trim() });
+  return { id: raw._id, from: 'requester', text: raw.text ?? text.trim(), createdAt: raw.createdAt };
 }
 
 export const FAQS: { question: string; answer: string }[] = [

@@ -1,4 +1,4 @@
-import { mockResponse } from './client';
+import { apiGet, requireId } from './client';
 
 /** Mirrors `GET /program/stats` (public). */
 export type ProgramStats = { agents: number; countries: number; suppliers: number };
@@ -23,37 +23,28 @@ export type GuestReward = {
 
 export type GuestPreview = { stats: ProgramStats; sampleBalance: number; rewards: GuestReward[] };
 
-const rewards: GuestReward[] = [
-  {
-    id: 'lounge-pass',
-    publicId: 'RW-10001',
-    title: 'Airport lounge access pass',
-    description:
-      'Complimentary access to over 1,100 airport lounges worldwide through the Beverly Group partner network. Valid for one visit with one guest.',
-    category: 'travel',
-    milesPrice: 400,
-    eurValue: 40,
-    fulfilment: 'instant_voucher',
-    minTier: null,
-    validityDays: 365,
-    howToUse: ['Show your voucher at a participating lounge.', 'Bring photo ID.', 'One guest may enter with you.'],
-    inStock: true,
-    howAgentsEarn: [
-      { title: 'Register a booking you already sold', detail: 'A €2,700 hotel booking earns about 400 miles' },
-      { title: 'Or complete partner training', detail: 'A full Academy course earns 300 miles' },
-    ],
-  },
+/** Illustrative balance for the guest hero; the backend has no such figure. */
+const SAMPLE_BALANCE = 3390;
+
+/** Static explainer copy for the guest reward screen (not backend data). */
+const HOW_AGENTS_EARN: GuestReward['howAgentsEarn'] = [
+  { title: 'Register a booking you already sold', detail: 'Approved bookings earn miles on the booking value' },
+  { title: 'Or complete partner training', detail: 'Finishing an Academy course earns miles' },
 ];
 
-export function getGuestPreview() {
-  const data: GuestPreview = {
-    stats: { agents: 1240, countries: 38, suppliers: 64 },
-    sampleBalance: 3390,
-    rewards,
-  };
-  return mockResponse(data);
+type RewardPreview = Omit<GuestReward, 'howAgentsEarn'>;
+
+const withCopy = (reward: RewardPreview): GuestReward => ({ ...reward, howAgentsEarn: HOW_AGENTS_EARN });
+
+export async function getGuestPreview(): Promise<GuestPreview> {
+  const [stats, rewards] = await Promise.all([
+    apiGet<ProgramStats>('/program/stats'),
+    apiGet<RewardPreview[]>('/rewards/preview', { limit: 6 }),
+  ]);
+  return { stats, sampleBalance: SAMPLE_BALANCE, rewards: rewards.map(withCopy) };
 }
 
-export function getGuestReward(id?: string) {
-  return mockResponse(rewards.find((reward) => reward.id === id) ?? rewards[0]);
+/** `GET /rewards/:id/preview`. */
+export async function getGuestReward(id?: string): Promise<GuestReward> {
+  return withCopy(await apiGet<RewardPreview>(`/rewards/${requireId(id)}/preview`));
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { router } from 'expo-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Text, TextInput, View } from 'react-native';
@@ -6,6 +6,7 @@ import { MilesHeader, MilesScreen } from '@/components/miles-ui';
 import { useToast } from '@/components/toast';
 import { Field } from '@/components/ui';
 import { Chip, FieldError, FormButton, goBack } from '@/components/hub/hub-ui';
+import { newIdempotencyKey } from '@/lib/api/client';
 import { TICKET_CATEGORIES, createTicket, type TicketCategory } from '@/lib/api/support';
 
 type Errors = Partial<Record<'subject' | 'message', string>>;
@@ -18,8 +19,14 @@ export default function NewSupportRequestScreen() {
   const [message, setMessage] = useState('');
   const [errors, setErrors] = useState<Errors>({});
 
+  // The same content retried keeps one key; editing the request is a new action.
+  const keyRef = useRef(newIdempotencyKey());
+  useEffect(() => {
+    keyRef.current = newIdempotencyKey();
+  }, [subject, category, message]);
+
   const create = useMutation({
-    mutationFn: () => createTicket({ subject, category, message }),
+    mutationFn: () => createTicket({ subject, category, message, idempotencyKey: keyRef.current }),
     onSuccess: (ticket) => {
       void queryClient.invalidateQueries({ queryKey: ['support'] });
       showToast('Request sent', `Your reference is ${ticket.publicId}.`, 'success');

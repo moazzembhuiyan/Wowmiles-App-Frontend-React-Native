@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ArrowLeft, Award, Hotel, BookOpen, Gift, CalendarDays, SlidersHorizontal } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { MilesActivity, milesActivities, formatMiles } from '@/components/miles-data';
+import { EmptyState, QueryView } from '@/components/states';
+import { formatMiles, formatSignedMiles, getMilesActivity, groupByMonth, type MilesActivity } from '@/lib/api/miles';
+import { getWallet } from '@/lib/api/wallet';
 import { DataRow, MilesScreen, Pill } from '@/components/miles-ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -16,20 +19,15 @@ function activityIcon(activity: MilesActivity) {
     case 'Academy': return <BookOpen color={color} size={19} />;
     case 'Event': return <CalendarDays color={color} size={19} />;
     case 'Redemption': return <Gift color={color} size={19} />;
-    case 'Expired': return <Award color={color} size={19} />;
+    case 'Other': return <Award color={color} size={19} />;
   }
 }
 
 export default function MilesScreenRoute() {
   const [tab, setTab] = useState<MilesTab>('All');
-  const visibleActivities = useMemo(
-    () => milesActivities.filter((activity) =>
-      tab === 'All' ||
-      (tab === 'Earned' && activity.miles > 0) ||
-      (tab === 'Redeemed' && activity.type === 'Redemption'),
-    ),
-    [tab],
-  );
+  const wallet = useQuery({ queryKey: ['wallet'], queryFn: getWallet });
+  const type = tab === 'Earned' ? 'earned' : tab === 'Redeemed' ? 'redeemed' : 'all';
+  const activity = useQuery({ queryKey: ['miles-activity', { type, limit: 20 }], queryFn: () => getMilesActivity({ type, limit: 20 }) });
     const insets = useSafeAreaInsets();
 
   return (
@@ -59,7 +57,7 @@ export default function MilesScreenRoute() {
           </Text>
           <View className="mt-1 flex-row items-baseline">
             <Text className="text-[46px] font-light leading-[52px] tracking-[-1.5px] text-white">
-              48,500
+              {formatMiles(wallet.data?.available ?? 0)}
             </Text>
             <Text className="ml-2 text-[13px] text-[#D8DAF2]">miles</Text>
           </View>
@@ -72,11 +70,11 @@ export default function MilesScreenRoute() {
           </Pressable>
           <View className="mt-3 flex-row">
             <View className="mr-2 flex-1 items-center rounded-[12px] bg-white/20 py-2.5">
-              <Text className="text-[18px] font-semibold text-white">62,400</Text>
+              <Text className="text-[18px] font-semibold text-white">{formatMiles(wallet.data?.lifetimeEarned ?? 0)}</Text>
               <Text className="mt-0.5 text-[12px] text-[#E0E3F7]">Lifetime earned</Text>
             </View>
             <View className="flex-1 items-center rounded-[12px] bg-white/20 py-2.5">
-              <Text className="text-[18px] font-semibold text-white">13,900</Text>
+              <Text className="text-[18px] font-semibold text-white">{formatMiles(wallet.data?.lifetimeRedeemed ?? 0)}</Text>
               <Text className="mt-0.5 text-[12px] text-[#E0E3F7]">Redeemed</Text>
             </View>
           </View>
@@ -97,28 +95,32 @@ export default function MilesScreenRoute() {
         </Pressable>
       </View>
 
-      {(['OCTOBER 2026', 'SEPTEMBER 2026'] as const).map((month) => {
-        const monthActivities = visibleActivities.filter((activity) => activity.month === month);
-        if (!monthActivities.length) return null;
-        return (
-          <View key={month} className="mb-4">
-            <Text className="mb-1.5 text-[12px] font-medium tracking-[0.6px] text-[#747B8B]">
-              {month}
-            </Text>
-            {monthActivities.map((activity, index) => (
-              <DataRow
-                key={activity.id}
-                title={activity.title}
-                detail={activity.detail}
-                value={`${activity.miles > 0 ? '+' : '−'}${formatMiles(activity.miles)}`}
-                icon={activityIcon(activity)}
-                onPress={() => activity.type === 'Redemption' && router.push('/redemption-history')}
-                last={index === monthActivities.length - 1}
-              />
-            ))}
-          </View>
-        );
-      })}
+      <QueryView
+        query={activity}
+        isEmpty={(items) => items.length === 0}
+        empty={<EmptyState title="No activity found" description="Your miles activity will appear here." />}
+      >
+        {(items) =>
+          groupByMonth(items).map(([month, monthActivities]) => (
+            <View key={month} className="mb-4">
+              <Text className="mb-1.5 text-[12px] font-medium tracking-[0.6px] text-[#747B8B]">
+                {month}
+              </Text>
+              {monthActivities.map((item, index) => (
+                <DataRow
+                  key={item.id}
+                  title={item.title}
+                  detail={item.detail}
+                  value={formatSignedMiles(item.miles)}
+                  icon={activityIcon(item)}
+                  onPress={() => item.type === 'Redemption' && router.push('/redemption-history')}
+                  last={index === monthActivities.length - 1}
+                />
+              ))}
+            </View>
+          ))
+        }
+      </QueryView>
 
       <Pressable
         accessibilityRole="button"

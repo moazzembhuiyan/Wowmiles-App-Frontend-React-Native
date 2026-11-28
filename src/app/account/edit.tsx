@@ -8,8 +8,8 @@ import { useToast } from '@/components/toast';
 import { Field } from '@/components/ui';
 import { Avatar, Chip, FieldError, FormButton, SectionLabel, goBack } from '@/components/hub/hub-ui';
 import {
-  SPECIALTY_OPTIONS,
   fetchProfileSummary,
+  fetchSpecialtyOptions,
   updateProfile,
   type ProfileSummary,
 } from '@/lib/api/profile';
@@ -34,6 +34,7 @@ function EditForm({ data }: { data: ProfileSummary }) {
   const [city, setCity] = useState(data.profile.city);
   const [specialties, setSpecialties] = useState<string[]>(data.profile.specialties.map((item) => item.key));
   const [errors, setErrors] = useState<Errors>({});
+  const options = useQuery({ queryKey: ['profile', 'specialty-options'], queryFn: fetchSpecialtyOptions });
 
   const save = useMutation({
     mutationFn: () => updateProfile({ name, phone, city, specialties }),
@@ -92,7 +93,7 @@ function EditForm({ data }: { data: ProfileSummary }) {
 
       <SectionLabel>Specialises in</SectionLabel>
       <View className="mb-5 flex-row flex-wrap">
-        {SPECIALTY_OPTIONS.map((option) => (
+        {(options.data ?? data.profile.specialties).map((option) => (
           <Chip
             key={option.key}
             label={option.name}

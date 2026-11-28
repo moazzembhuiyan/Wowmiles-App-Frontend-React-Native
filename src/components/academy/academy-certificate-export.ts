@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { featuredCourse } from './academy-data';
+import type { Certificate } from '@/lib/api/academy';
 
 function escapeHtml(value: string) {
   return value
@@ -12,8 +12,11 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;');
 }
 
-export function createCertificateHtml() {
-  const courseTitle = escapeHtml(featuredCourse.title);
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+export function createCertificateHtml(certificate: Certificate) {
+  const courseTitle = escapeHtml(certificate.courseTitle);
   return `<!doctype html>
 <html>
   <head>
@@ -42,23 +45,23 @@ export function createCertificateHtml() {
       <article class="certificate">
         <div class="brand">WOWMILES ACADEMY</div>
         <div class="seal">&#9733;</div>
-        <div class="label">CERTIFIED BY EMIRATES</div>
+        <div class="label">CERTIFIED BY ${escapeHtml(certificate.issuedBy.name.toUpperCase())}</div>
         <h1>${courseTitle}</h1>
-        <div class="recipient">Daniel Reed</div>
-        <div class="agency">Beverly Travel Ltd</div>
+        <div class="recipient">${escapeHtml(certificate.nameOnCertificate)}</div>
+        ${certificate.agencyName ? `<div class="agency">${escapeHtml(certificate.agencyName)}</div>` : ''}
         <div class="meta">
-          <div><strong>ISSUED</strong>14 Oct 2026</div>
-          <div><strong>COURSE</strong>Emirates</div>
+          <div><strong>ISSUED</strong>${formatDate(certificate.issuedAt)}</div>
+          ${certificate.expiresAt ? `<div><strong>VALID UNTIL</strong>${formatDate(certificate.expiresAt)}</div>` : ''}
         </div>
-        <div class="ref">CERTIFICATE REFERENCE · WM-CERT-00418</div>
+        <div class="ref">CERTIFICATE REFERENCE · ${escapeHtml(certificate.publicId)} · VERIFY ${escapeHtml(certificate.verifyCode)}</div>
       </article>
     </main>
   </body>
 </html>`;
 }
 
-export async function exportCertificate() {
-  const { uri } = await Print.printToFileAsync({ html: createCertificateHtml() });
+export async function exportCertificate(certificate: Certificate) {
+  const { uri } = await Print.printToFileAsync({ html: createCertificateHtml(certificate) });
   if (Platform.OS === 'web') return 'print' as const;
 
   if (!(await Sharing.isAvailableAsync())) return 'unavailable' as const;

@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
+import { ApiError } from '@/lib/api/client';
+import { signupWithEmail } from '@/lib/api/auth';
 import { AuthField, AuthFooter, AuthFormScreen, AuthHeading, AuthPasswordField } from '@/components/figma-auth';
 import { useToast } from '@/components/toast';
 
@@ -9,10 +11,12 @@ export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [accepted, setAccepted] = useState(true);
+  const [accepted, setAccepted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const showToast = useToast();
 
-  function createAccount() {
+  async function createAccount() {
+    if (submitting) return;
     if (!name.trim() || !email.includes('@') || phone.trim().length < 6 || password.length < 8) {
       showToast('Check your details', 'Enter your name, a valid email, phone number and a password with at least 8 characters.');
       return;
@@ -21,7 +25,15 @@ export default function SignUpScreen() {
       showToast('Terms required', 'Please agree to the program terms and privacy policy to continue.');
       return;
     }
-    router.push('/(auth)/agency');
+    setSubmitting(true);
+    try {
+      await signupWithEmail({ name, email, phone, password, acceptedTerms: accepted });
+      router.push('/(auth)/agency');
+    } catch (error) {
+      showToast('Could not create account', error instanceof ApiError ? error.message : 'Something went wrong. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -32,7 +44,7 @@ export default function SignUpScreen() {
           eyebrow="Next"
           title="Verify your agency"
           buttonLabel="Continue"
-          onPress={createAccount}
+          onPress={() => void createAccount()}
         />
       }
     >
@@ -45,7 +57,6 @@ export default function SignUpScreen() {
         <AuthField label="Work email" value={email} onChangeText={setEmail} placeholder="you@agency.com" keyboardType="email-address" />
         <AuthField label="Mobile number" value={phone} onChangeText={setPhone} placeholder="+880 1XXX XXXXXX" keyboardType="phone-pad" />
         <AuthPasswordField label="Password" value={password} onChangeText={setPassword} placeholder="Password" />
-        <Text className="-mt-1 mb-3 text-[12px] text-[#368A68]">Strong password</Text>
         <Pressable
           accessibilityRole="checkbox"
           accessibilityState={{ checked: accepted }}

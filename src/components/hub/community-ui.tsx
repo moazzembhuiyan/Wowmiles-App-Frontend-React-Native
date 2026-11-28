@@ -28,7 +28,7 @@ export function AuthorRow({
         <View className="ml-3 flex-1">
           <View className="flex-row flex-wrap items-center">
             <Text className="mr-2 text-[15px] font-medium text-ink">{author.name}</Text>
-            <TierBadge tier={author.tier.key} label={author.tier.name} />
+            {author.tier ? <TierBadge tier={author.tier.key} label={author.tier.name} /> : null}
           </View>
           <Text className="mt-0.5 text-[12px] text-muted">
             {author.city ? `${author.city} · ` : ''}

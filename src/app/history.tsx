@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Award, BookOpen, CalendarDays, Clock3, Gift, Hotel, SlidersHorizontal, X } from 'lucide-react-native';
+import { useQuery } from '@tanstack/react-query';
+import { Award, BookOpen, CalendarDays, Gift, Hotel, SlidersHorizontal, X } from 'lucide-react-native';
 import { Modal, Pressable, Text, View } from 'react-native';
-import { MilesActivity, MilesActivityType, formatMiles, milesActivities } from '@/components/miles-data';
+import { QueryView } from '@/components/states';
+import { formatSignedMiles, getMilesActivity, groupByMonth, type HistoryRange, type MilesActivity, type MilesActivityType } from '@/lib/api/miles';
 import { DataRow, MilesHeader, MilesScreen, Pill } from '@/components/miles-ui';
 
-type HistoryTab = 'All' | 'Earned' | 'Redeemed' | 'Expired';
-type DateRange = 'Last 30 days' | 'Last 3 months' | 'This year' | 'All time';
-type ActivityFilter = Exclude<MilesActivityType, 'Expired'>;
+type HistoryTab = 'All' | 'Earned' | 'Redeemed';
+type DateRange = HistoryRange;
+type ActivityFilter = Exclude<MilesActivityType, 'Other'>;
 
 const activityFilters: ActivityFilter[] = ['Booking', 'Academy', 'Event', 'Redemption'];
 
@@ -21,8 +23,8 @@ const iconFor = (activity: MilesActivity) => {
       return <CalendarDays color={color} size={18} />;
     case 'Redemption':
       return <Gift color={color} size={18} />;
-    case 'Expired':
-      return <Clock3 color={color} size={18} />;
+    case 'Other':
+      return <Award color={color} size={18} />;
   }
 };
 
@@ -34,19 +36,15 @@ export default function MilesHistoryScreen() {
   const [selectedTypes, setSelectedTypes] = useState<ActivityFilter[]>(activityFilters);
   const [draftTypes, setDraftTypes] = useState<ActivityFilter[]>(activityFilters);
 
-  const filteredActivities = useMemo(() => {
-    return milesActivities.filter((activity) => {
-      const matchesTab =
-        tab === 'All' ||
-        (tab === 'Earned' && activity.miles > 0) ||
-        (tab === 'Redeemed' && activity.type === 'Redemption') ||
-        (tab === 'Expired' && activity.type === 'Expired');
-      const matchesType =
-        activity.type === 'Expired' ? tab === 'All' || tab === 'Expired' : selectedTypes.includes(activity.type);
-      const matchesDate = dateRange !== 'Last 30 days' || activity.month === 'OCTOBER 2026';
-      return matchesTab && matchesType && matchesDate;
-    });
-  }, [dateRange, selectedTypes, tab]);
+  const type = tab === 'Earned' ? 'earned' : tab === 'Redeemed' ? 'redeemed' : 'all';
+  const query = useQuery({
+    queryKey: ['miles-activity', { type, range: dateRange }],
+    queryFn: () => getMilesActivity({ type, range: dateRange }),
+  });
+  const filteredActivities = useMemo(
+    () => (query.data ?? []).filter((activity) => activity.type === 'Other' || selectedTypes.includes(activity.type)),
+    [query.data, selectedTypes],
+  );
 
   function openFilters() {
     setDraftDateRange(dateRange);
@@ -73,17 +71,16 @@ export default function MilesHistoryScreen() {
       </Pressable>
 
       <View className="mb-4 flex-row">
-        {(['All', 'Earned', 'Redeemed', 'Expired'] as const).map((item) => (
+        {(['All', 'Earned', 'Redeemed'] as const).map((item) => (
           <Pill key={item} label={item} selected={tab === item} onPress={() => setTab(item)} />
         ))}
       </View>
 
-      {filteredActivities.length ? (
+      <QueryView query={query}>
+        {() =>
+          filteredActivities.length ? (
         <View>
-          {(['OCTOBER 2026', 'SEPTEMBER 2026'] as const).map((month) => {
-            const monthActivities = filteredActivities.filter((activity) => activity.month === month);
-            if (!monthActivities.length) return null;
-            return (
+          {groupByMonth(filteredActivities).map(([month, monthActivities]) => (
               <View key={month} className="mb-4">
                 <Text className="mb-2 text-[12px] font-medium tracking-[0.4px] text-muted">{month}</Text>
                 <View className="rounded-[16px] bg-white px-3.5">
@@ -92,17 +89,16 @@ export default function MilesHistoryScreen() {
                       key={activity.id}
                       title={activity.title}
                       detail={activity.detail}
-                      value={`${activity.miles > 0 ? '+' : '−'}${formatMiles(activity.miles)}`}
+                      value={formatSignedMiles(activity.miles)}
                       icon={iconFor(activity)}
                       last={index === monthActivities.length - 1}
                     />
                   ))}
                 </View>
               </View>
-            );
-          })}
+            ))}
         </View>
-      ) : (
+          ) : (
         <View className="mt-6 items-center rounded-[16px] bg-white px-6 py-10">
           <Award color="#4145B6" size={28} />
           <Text className="mt-3 text-[15px] font-semibold text-ink">No activity found</Text>
@@ -110,7 +106,9 @@ export default function MilesHistoryScreen() {
             Try another history filter to see your miles activity.
           </Text>
         </View>
-      )}
+      )
+        }
+      </QueryView>
 
       <Modal
         visible={filterOpen}

@@ -4,14 +4,16 @@ import { Bell, Database, KeyRound, Languages, MonitorSmartphone, Moon, ShieldChe
 import { MilesHeader, MilesScreen } from '@/components/miles-ui';
 import { Card, FormButton, ListRow, SectionLabel, goBack } from '@/components/hub/hub-ui';
 import { useToast } from '@/components/toast';
+import { useAuth } from '@/lib/auth/auth-context';
 
 export default function SettingsScreen() {
   const showToast = useToast();
+  const { logout } = useAuth();
 
   function confirmLogout() {
     Alert.alert('Log out?', 'You will need to sign in again to use WowMiles.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Log out', style: 'destructive', onPress: () => router.replace('/login') },
+      { text: 'Log out', style: 'destructive', onPress: () => void logout().then(() => router.replace('/(auth)/login')) },
     ]);
   }
 

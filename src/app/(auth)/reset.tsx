@@ -10,20 +10,32 @@ import {
   AuthPasswordField,
 } from '@/components/figma-auth';
 import { useToast } from '@/components/toast';
+import { resetPasswordWithCode } from '@/lib/api/auth';
+import { ApiError } from '@/lib/api/client';
 
 export default function ResetPasswordScreen() {
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const showToast = useToast();
 
-  function savePassword() {
+  async function savePassword() {
+    if (submitting) return;
     if (code.length !== 6 || password.length < 8 || password !== confirmPassword) {
       showToast('Check your details', 'Enter the 6-digit code, use a password with at least 8 characters, and confirm it correctly.');
       return;
     }
-    showToast('Password updated', 'You can now log in with your new password.', 'success');
-    router.replace('/(auth)/login');
+    setSubmitting(true);
+    try {
+      await resetPasswordWithCode({ code, password, confirmPassword });
+      showToast('Password updated', 'You can now log in with your new password.', 'success');
+      router.replace('/(auth)/login');
+    } catch (error) {
+      showToast('Could not reset password', error instanceof ApiError ? error.message : 'Something went wrong. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -31,9 +43,9 @@ export default function ResetPasswordScreen() {
       footer={
         <AuthFooter
           eyebrow="Then"
-          title="We will sign you in"
+          title="Log in with it"
           buttonLabel="Save"
-          onPress={savePassword}
+          onPress={() => void savePassword()}
         />
       }
     >

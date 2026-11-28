@@ -244,3 +244,15 @@ export function CertificateSeal() {
     </View>
   );
 }
+
+/** Full-screen wrapper for the loading / error / empty state of an Academy query, with a back button. */
+export function AcademyStatusFrame({ onBack, children }: { onBack: () => void; children: ReactNode }) {
+  return (
+    <AcademyScreenFrame background="#F7F8FA">
+      <View className="px-4 pt-3">
+        <RoundIconButton label="Back" onPress={onBack} />
+      </View>
+      <View className="px-4 pt-6">{children}</View>
+    </AcademyScreenFrame>
+  );
+}

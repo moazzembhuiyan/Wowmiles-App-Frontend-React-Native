@@ -5,7 +5,8 @@ import { Gift, Minus, Plus } from 'lucide-react-native';
 import { Pressable, Text, View } from 'react-native';
 import { BottomBar, CheckoutHeader, CheckoutScreen, FootNote, miles } from '@/components/money-ui';
 import { QueryView } from '@/components/states';
-import { getRewardMeta, getReward } from '@/components/rewards-data';
+import { RewardGate } from '@/components/reward-gate';
+import type { Reward } from '@/lib/api/rewards';
 import {
   getCheckoutDraft,
   getEligibleSources,
@@ -16,10 +17,14 @@ import {
 
 const STEP = 500;
 
-export default function ChooseMilesScreen() {
-  const { id, miles: milesParam } = useLocalSearchParams<{ id?: string; miles?: string }>();
-  const reward = getReward(id);
-  const draft = getCheckoutDraft(reward.id);
+export default function ChooseMilesScreenRoute() {
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  return <RewardGate id={id}>{(reward) => <ChooseMilesScreen reward={reward} />}</RewardGate>;
+}
+
+function ChooseMilesScreen({ reward }: { reward: Reward }) {
+  const { miles: milesParam } = useLocalSearchParams<{ id?: string; miles?: string }>();
+  const draft = getCheckoutDraft(reward);
   const needed = Number(milesParam) || draft.miles;
   const sources = useQuery({ queryKey: ['eligible-sources'], queryFn: getEligibleSources });
   const auto = useQuery({
@@ -47,7 +52,7 @@ export default function ChooseMilesScreen() {
             .filter(([, value]) => value > 0)
             .map(([key, value]) => ({ supplier: key === 'platform' ? null : key, miles: value }))
         : [];
-    updateCheckoutDraft(reward.id, { miles: needed, allocationMode: mode, allocation });
+    updateCheckoutDraft(reward, { miles: needed, allocationMode: mode, allocation });
     router.back();
   }
 
@@ -58,7 +63,7 @@ export default function ChooseMilesScreen() {
       <CheckoutHeader
         title="Choose your miles"
         heading={`${miles(needed)} miles for this reward`}
-        subtitle={`${reward.title} · ${getRewardMeta(reward.id).providerName}`}
+        subtitle={`${reward.title} · ${reward.providerName}`}
       />
 
       <View className="mb-5 flex-row rounded-full bg-[#EEF0F4] p-1">

@@ -1,29 +1,37 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Gift, Wallet } from 'lucide-react-native';
 import { Pressable, Text, View } from 'react-native';
 import { useToast } from '@/components/toast';
 import { createRedemption, getCheckoutDraft } from '@/lib/api/redemptions';
+import { getWallet } from '@/lib/api/wallet';
 import { MilesScreen } from '@/components/miles-ui';
 import { FeatureHero } from '@/components/feature-ui';
-import { getReward, getRewardMeta } from '@/components/rewards-data';
+import { RewardGate } from '@/components/reward-gate';
+import type { Reward } from '@/lib/api/rewards';
 
-export default function RedeemConfirmationScreen() {
+export default function RedeemConfirmationRoute() {
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const reward = getReward(id);
+  return <RewardGate id={id}>{(reward) => <RedeemConfirmationScreen reward={reward} />}</RewardGate>;
+}
+
+function RedeemConfirmationScreen({ reward }: { reward: Reward }) {
   const cost = reward.cost.toLocaleString('en-US');
-  const providerConfirm = getRewardMeta(reward.id).fulfilment === 'provider_confirm';
+  const providerConfirm = reward.fulfilment === 'provider_confirm';
   const showToast = useToast();
+  const wallet = useQuery({ queryKey: ['wallet'], queryFn: getWallet });
   const redeem = useMutation({
-    mutationFn: () => createRedemption({ draft: getCheckoutDraft(reward.id) }),
+    mutationFn: () => createRedemption({ draft: getCheckoutDraft(reward) }),
     onSuccess: (redemption) =>
-      router.replace({ pathname: '/checkout/awaiting', params: { rid: redemption.id } }),
+      router.replace({
+        pathname: redemption.status === 'awaiting_provider' ? '/checkout/awaiting' : '/checkout/confirmed',
+        params: { rid: redemption.id },
+      }),
     onError: (error) => showToast('Could not send request', error.message),
   });
 
   function confirm() {
-    if (providerConfirm) redeem.mutate();
-    else router.replace({ pathname: '/voucher', params: { id } });
+    redeem.mutate();
   }
 
   return (
@@ -47,7 +55,7 @@ export default function RedeemConfirmationScreen() {
         </View>
         <View className="mt-2 flex-row items-baseline">
           <Text className="text-[34px] font-bold text-[#202638]">
-            {(48500 - reward.cost).toLocaleString('en-US')}
+            {wallet.data ? (wallet.data.available - reward.cost).toLocaleString('en-US') : '…'}
           </Text>
           <Text className="ml-2 text-[13px] text-[#747B8B]">miles</Text>
         </View>

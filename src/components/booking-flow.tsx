@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -37,7 +37,20 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useToast } from '@/components/toast';
-import { createBookingClaim, respondToClaim } from '@/lib/api/bookings';
+import { newIdempotencyKey, queryClient } from '@/lib/api/client';
+import {
+  appealClaim,
+  createBookingClaim,
+  estimateClaim,
+  getBookingClaim,
+  getBookingPartners,
+  listBookingClaims,
+  parseBookingDate,
+  respondToClaim,
+  type AppealReason,
+  type BookingClaim,
+  type ClaimStatus,
+} from '@/lib/api/bookings';
 import { useTabBarVisibility } from '@/components/tab-bar-visibility';
 
 type BookingStatus = 'Awaiting supplier' | 'Approved' | 'Reversed' | 'Needs information' | 'Duplicate';
@@ -53,18 +66,22 @@ type BookingFilter = 'All' | 'Awaiting supplier' | 'Approved' | 'Needs you' | 'R
 type Screen = 'list' | 'type' | 'details' | 'review' | 'submitted' | 'detail' | 'appeal';
 
 type Booking = {
+  /** Public reference shown to the agent (`WM-10001`). */
   id: string;
+  /** Backend id used in API paths. */
+  claimId: string;
   partner: string;
   category: BookingCategory;
   supplier: string;
   reference: string;
-  traveler: string;
   travelDates: string;
   bookingValue: string;
   currency: string;
   submittedDate: string;
   miles: number;
   status: BookingStatus;
+  /** An appeal was already sent for this claim. */
+  appealed: boolean;
   evidenceName: string;
   statusHistory: { label: string; date: string; reversed?: boolean }[];
   supplierQuestion?: string;
@@ -74,6 +91,7 @@ type Booking = {
 type BookingDraft = {
   category: BookingCategory | null;
   supplier: string;
+  partnerId: string;
   reference: string;
   checkIn: string;
   checkOut: string;
@@ -83,126 +101,114 @@ type BookingDraft = {
 
 type PickedFile = { name: string; uri: string; size?: number };
 
-const initialBookings: Booking[] = [
-  {
-    id: 'WM-48210',
-    partner: 'Hilton Dubai Al Habtoor City',
-    category: 'Hotel chain',
-    supplier: 'Hilton Hotels & Resorts',
-    reference: 'HIL-99212-AB',
-    traveler: 'Daniel Reed',
-    travelDates: '4 nights · 4–8 Nov 2026',
-    bookingValue: 'AED 12,800 · €3,200',
-    currency: 'AED',
-    submittedDate: '24 Oct 2026',
-    miles: 160,
-    status: 'Awaiting supplier',
-    evidenceName: 'hotel-confirmation.pdf',
-    statusHistory: [{ label: 'Registered', date: '24 Oct, 2:40 PM' }],
-  },
-  {
-    id: 'WM-48207',
-    partner: 'MSC Seaview — Western Med',
-    category: 'Cruises',
-    supplier: 'MSC Cruises',
-    reference: 'MSC-77710',
-    traveler: 'Daniel Reed',
-    travelDates: '7 nights · 14–21 Nov 2026',
-    bookingValue: 'AED 27,200 · €6,800',
-    currency: 'AED',
-    submittedDate: '22 Oct 2026',
-    miles: 340,
-    status: 'Awaiting supplier',
-    evidenceName: 'msc-confirmation.pdf',
-    statusHistory: [{ label: 'Registered', date: '22 Oct, 10:15 AM' }],
-  },
-  {
-    id: 'WM-48211',
-    partner: 'Hilton Dubai Al Habtoor City',
-    category: 'Hotel chain',
-    supplier: 'Hilton Hotels & Resorts',
-    reference: 'HIL-99212-AB',
-    traveler: 'Daniel Reed',
-    travelDates: '4–8 Nov 2026',
-    bookingValue: 'AED 12,800 · €3,200',
-    currency: 'AED',
-    submittedDate: '4 Nov 2026',
-    miles: 120,
-    status: 'Needs information',
-    evidenceName: 'hilton-booking.pdf',
-    supplierQuestion: 'Hilton cannot find your reference. Check it and send it again — nothing is lost.',
-    statusHistory: [
-      { label: 'Registered', date: '4 Nov, 09:20 AM' },
-      { label: 'Hilton asked for more', date: '6 Nov, 11:45 AM' },
-      { label: 'Waiting on you', date: 'Since 6 Nov', reversed: true },
-    ],
-  },
-  {
-    id: 'WM-48233',
-    partner: 'MSC Seaview — Western Med',
-    category: 'Cruises',
-    supplier: 'MSC Cruises',
-    reference: 'MSC-7741-KD',
-    traveler: 'Daniel Reed',
-    travelDates: '12–19 Dec 2026',
-    bookingValue: '€4,120',
-    currency: 'EUR',
-    submittedDate: '3 Nov 2026',
-    miles: 0,
-    status: 'Duplicate',
-    duplicateRegisteredOn: '2 Nov',
-    evidenceName: 'msc-confirmation.pdf',
-    statusHistory: [
-      { label: 'Registered', date: '3 Nov, 15:10 AM' },
-      { label: 'Duplicate found', date: '3 Nov, 15:11 AM' },
-      { label: 'No miles issued', date: '3 Nov, 15:11 AM', reversed: true },
-    ],
-  },
-  {
-    id: 'WM-48154',
-    partner: 'Jumeirah Beach Hotel',
-    category: 'Hotel chain',
-    supplier: 'Jumeirah Hotels & Resorts',
-    reference: 'JUM-88304',
-    traveler: 'Daniel Reed',
-    travelDates: '3 nights · see supplier confirmation',
-    bookingValue: 'AED 12,800 · €3,200',
-    currency: 'AED',
-    submittedDate: '12 Oct 2026',
-    miles: 120,
-    status: 'Approved',
-    evidenceName: 'supplier-confirmation.pdf',
-    statusHistory: [
-      { label: 'Registered', date: '12 Oct, 2:40 PM' },
-      { label: 'Jumeirah confirmed the booking', date: '13 Oct, 9:12 AM' },
-      { label: 'Miles credited', date: '13 Oct, 9:12 AM' },
-    ],
-  },
-  {
-    id: 'WM-47998',
-    partner: 'Anantara The Palm Dubai',
-    category: 'Hotel chain',
-    supplier: 'Anantara Hotels & Resorts',
-    reference: 'ANT-5521-KD',
-    traveler: 'Daniel Reed',
-    travelDates: '18–23 Nov 2026',
-    bookingValue: 'AED 9,400 · €2,350',
-    currency: 'AED',
-    submittedDate: '24 Sep 2026',
-    miles: -140,
-    status: 'Reversed',
-    evidenceName: 'anantara-confirmation.pdf',
-    statusHistory: [
-      { label: 'Registered', date: '24 Sep, 11:02 AM' },
-      { label: 'Anantara confirmed the booking', date: '25 Sep, 4:30 PM' },
-      { label: 'Reversed by Anantara', date: '2 Oct, 10:15 AM', reversed: true },
-    ],
-  },
-];
+const categoryKeys: Record<BookingCategory, string> = {
+  'Independent hotel': 'independent-hotel',
+  'Hotel chain': 'hotel-chain',
+  Bedbank: 'bedbank',
+  Airlines: 'airlines',
+  Cruises: 'cruises',
+  'Tour package': 'tour-operator',
+  Experience: 'experience',
+};
+
+const categoryByKey = Object.fromEntries(Object.entries(categoryKeys).map(([title, key]) => [key, title])) as Record<string, BookingCategory>;
+
+const statusByClaim: Record<ClaimStatus, BookingStatus> = {
+  received: 'Awaiting supplier',
+  under_review: 'Awaiting supplier',
+  escalated: 'Awaiting supplier',
+  needs_information: 'Needs information',
+  approved: 'Approved',
+  duplicate: 'Duplicate',
+  rejected: 'Reversed',
+  cancelled: 'Reversed',
+};
+
+const timelineLabels: Record<string, { label: string; reversed?: boolean }> = {
+  received: { label: 'Registered' },
+  duplicate_found: { label: 'Already claimed by another agency', reversed: true },
+  info_requested: { label: 'The supplier asked a question' },
+  info_provided: { label: 'You answered the supplier' },
+  approved: { label: 'Confirmed by the supplier' },
+  rejected: { label: 'Rejected by the supplier', reversed: true },
+  cancelled: { label: 'Reversed by the supplier', reversed: true },
+  escalated: { label: 'Escalated for review' },
+  reminder_sent: { label: 'Reminder sent to the supplier' },
+  admin_reminder: { label: 'Reminder sent to the supplier' },
+  miles_available: { label: 'Miles available' },
+  appeal_opened: { label: 'Appeal sent' },
+  appeal_upheld: { label: 'Appeal upheld' },
+  appeal_dismissed: { label: 'Appeal dismissed', reversed: true },
+  appeal_evidence_requested: { label: 'More evidence requested' },
+  appeal_evidence_provided: { label: 'Evidence sent' },
+  correction_requested: { label: 'Correction requested' },
+};
+
+const appealCodes: Record<string, AppealReason> = {
+  'The booking was not cancelled': 'not_cancelled',
+  'Only part of it was cancelled': 'only_part',
+  'The supplier reversed the wrong booking': 'wrong_booking',
+  'Something else': 'other',
+};
+
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const shortDateTime = (iso: string) => {
+  const at = new Date(iso);
+  const day = at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return `${day}, ${at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+};
+const money = (minor: number) => (minor / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+
+function toBooking(claim: BookingClaim): Booking {
+  const status = statusByClaim[claim.status];
+  const partner = claim.partnerInfo?.name ?? claim.title;
+  const lastQuestion = [...(claim.messages ?? [])].reverse().find((message) => message.from !== 'agent');
+  const miles =
+    status === 'Reversed'
+      ? -(claim.reversal?.milesReversed ?? claim.awardedMiles)
+      : status === 'Duplicate'
+        ? 0
+        : claim.awardedMiles || claim.estimatedMiles;
+  const value = `${claim.currency} ${money(claim.amountMinor)}`;
+  return {
+    id: claim.publicId,
+    claimId: claim.id,
+    partner,
+    category: categoryByKey[claim.categoryInfo?.key ?? ''] ?? 'Hotel chain',
+    supplier: partner,
+    reference: claim.supplierReference,
+    travelDates: `${claim.nights} nights · ${shortDate(claim.startDate)}–${shortDate(claim.endDate)}`,
+    bookingValue: claim.currency === 'EUR' ? value : `${value} · €${money(claim.amountEurMinor)}`,
+    currency: claim.currency,
+    submittedDate: shortDate(claim.createdAt),
+    miles,
+    status,
+    appealed: claim.appealStatus !== 'none',
+    evidenceName: claim.evidence?.[0]?.name ?? 'Supplier confirmation',
+    statusHistory: (claim.timeline ?? [{ type: 'received', at: claim.createdAt }]).map((entry) => ({
+      label: timelineLabels[entry.type]?.label ?? 'Updated',
+      date: shortDateTime(entry.at),
+      reversed: timelineLabels[entry.type]?.reversed,
+    })),
+    supplierQuestion: status === 'Needs information' ? lastQuestion?.body : undefined,
+    duplicateRegisteredOn: claim.duplicateOf ? shortDate(claim.duplicateOf.registeredAt) : undefined,
+  };
+}
+
+/** Value that follows `value` after it has been stable for `delayMs` (keeps the estimate from firing on every keystroke). */
+function useDebounced<T>(value: T, delayMs = 500): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 const blankDraft: BookingDraft = {
   category: null,
   supplier: '',
+  partnerId: '',
   reference: '',
   checkIn: '',
   checkOut: '',
@@ -221,15 +227,6 @@ const categories: { title: BookingCategory; subtitle: string; icon: typeof Hotel
   { title: 'Experience', subtitle: 'Activities and experiences', icon: Award },
 ];
 const popularCategories: BookingCategory[] = ['Hotel chain', 'Cruises', 'Tour package', 'Experience'];
-const suppliers = [
-  'Hilton Hotels & Resorts',
-  'Jumeirah Hotels & Resorts',
-  'Anantara Hotels & Resorts',
-  'Marriott Hotels',
-  'MSC Cruises',
-  'Emirates',
-  'Other supplier',
-];
 const appealReasons = [
   'The booking was not cancelled',
   'Only part of it was cancelled',
@@ -239,10 +236,6 @@ const appealReasons = [
 const currencyOptions = ['AED', 'EUR', 'USD'];
 
 const formatMiles = (miles: number) => new Intl.NumberFormat('en').format(Math.abs(miles));
-const milesFromValue = (value: string) => {
-  const amount = Number(value.replace(/,/g, ''));
-  return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 0.0125) : 0;
-};
 
 function CircleAction({
   icon,
@@ -271,10 +264,16 @@ function ListHero({
   topInset,
   onRegister,
   onFilter,
+  pendingMiles,
+  awaiting,
+  confirmedThisYear,
 }: {
   topInset: number;
   onRegister: () => void;
   onFilter: () => void;
+  pendingMiles: number;
+  awaiting: number;
+  confirmedThisYear: number;
 }) {
   return (
     <View className="relative overflow-hidden px-5 pb-6" style={{ paddingTop: topInset + 8 }}>
@@ -306,10 +305,10 @@ function ListHero({
         MILES AWAITING SUPPLIER CONFIRMATION
       </Text>
       <View className="mt-1 flex-row items-baseline">
-        <Text className="text-[38px] font-bold leading-[44px] tracking-[-1px] text-white">710</Text>
+        <Text className="text-[38px] font-bold leading-[44px] tracking-[-1px] text-white">{formatMiles(pendingMiles)}</Text>
         <Text className="ml-2 text-[14px] text-[#D8DAF2]">miles</Text>
       </View>
-      <Text className="mt-1 text-[13px] text-[#D8DAF2]">4 awaiting supplier · 24 confirmed this year</Text>
+      <Text className="mt-1 text-[13px] text-[#D8DAF2]">{awaiting} awaiting supplier · {confirmedThisYear} confirmed this year</Text>
     </View>
   );
 }
@@ -451,7 +450,7 @@ function BookingCard({ booking, onPress }: { booking: Booking; onPress: () => vo
       {isPending ? (
         <View className="mt-1.5 flex-row items-center rounded-[7px] bg-[#F5F6F8] px-2 py-1">
           <Mail color="#8991A0" size={11} />
-          <Text className="ml-1.5 text-[10px] text-[#858C99]">Reminder sent · {booking.submittedDate}</Text>
+          <Text className="ml-1.5 text-[10px] text-[#858C99]">Registered · {booking.submittedDate}</Text>
         </View>
       ) : null}
     </Pressable>
@@ -544,7 +543,10 @@ export function BookingFlow() {
   const showToast = useToast();
   const setTabBarHidden = useTabBarVisibility();
   const [screen, setScreen] = useState<Screen>('list');
-  const [bookings, setBookings] = useState(initialBookings);
+  const listQuery = useQuery({ queryKey: ['bookings', 'list'], queryFn: listBookingClaims });
+  const bookings = useMemo(() => (listQuery.data?.claims ?? []).map(toBooking), [listQuery.data]);
+  const summary = listQuery.data?.summary;
+  const submitKey = useRef(newIdempotencyKey());
   const [filter, setFilter] = useState<BookingFilter>('All');
   const [filterOpen, setFilterOpen] = useState(false);
   const [draft, setDraft] = useState<BookingDraft>(blankDraft);
@@ -553,7 +555,7 @@ export function BookingFlow() {
   const [appealReason, setAppealReason] = useState('');
   const [appealDetails, setAppealDetails] = useState('');
   const [categorySearch, setCategorySearch] = useState('');
-  const [selected, setSelected] = useState<Booking | null>(null);
+  const [picked, setPicked] = useState<Booking | null>(null);
   const [submittedReference, setSubmittedReference] = useState('');
   const [supplierOpen, setSupplierOpen] = useState(false);
   const [confirmBooking, setConfirmBooking] = useState(false);
@@ -564,7 +566,37 @@ export function BookingFlow() {
     return () => setTabBarHidden(false);
   }, [screen, setTabBarHidden]);
 
-  const milesEstimate = useMemo(() => milesFromValue(draft.value), [draft.value]);
+  const categoryKey = draft.category ? categoryKeys[draft.category] : null;
+  const partners = useQuery({
+    queryKey: ['bookings', 'partners', categoryKey],
+    queryFn: () => getBookingPartners(categoryKey as string),
+    enabled: !!categoryKey,
+  });
+  const estimateAmount = Number(useDebounced(draft.value).replace(/,/g, ''));
+  const estimateStart = parseBookingDate(useDebounced(draft.checkIn));
+  const estimate = useQuery({
+    queryKey: ['bookings', 'estimate', categoryKey, draft.partnerId, estimateAmount, draft.currency, estimateStart],
+    queryFn: () =>
+      estimateClaim({
+        categoryKey: categoryKey as string,
+        partnerId: draft.partnerId,
+        amount: estimateAmount,
+        currency: draft.currency,
+        startDate: estimateStart as string,
+      }),
+    enabled: !!categoryKey && !!draft.partnerId && estimateAmount > 0 && !!estimateStart,
+    retry: false,
+  });
+  const milesEstimate = estimate.data?.miles ?? 0;
+  const detail = useQuery({
+    queryKey: ['bookings', 'detail', picked?.claimId],
+    queryFn: () => getBookingClaim(picked?.claimId as string),
+    enabled: !!picked && (screen === 'detail' || screen === 'appeal'),
+  });
+  const selected = useMemo(
+    () => (picked && detail.data && detail.data.id === picked.claimId ? toBooking(detail.data) : picked),
+    [picked, detail.data],
+  );
   const visibleBookings = useMemo(
     () =>
       bookings.filter(
@@ -584,17 +616,26 @@ export function BookingFlow() {
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
+  const chooseCategory = (category: BookingCategory) => {
+    setDraft((current) => (current.category === category ? current : { ...current, category, supplier: '', partnerId: '' }));
+  };
+
   const beginRegistration = () => {
     setDraft(blankDraft);
     setProof(null);
     setConfirmBooking(false);
+    submitKey.current = newIdempotencyKey();
     setScreen('type');
   };
 
   const goBack = () => {
     if (screen === 'type') setScreen('list');
     else if (screen === 'details') setScreen('type');
-    else if (screen === 'review') setScreen('details');
+    else if (screen === 'review') {
+      // Editing after a failed attempt is a new action, so it gets a new key.
+      submitKey.current = newIdempotencyKey();
+      setScreen('details');
+    }
     else if (screen === 'detail') setScreen('list');
     else if (screen === 'appeal') setScreen('detail');
     else setScreen('list');
@@ -633,6 +674,14 @@ export function BookingFlow() {
       showToast(`${missing[0]} is required`, 'Complete the booking details to continue.', 'error');
       return;
     }
+    if (!parseBookingDate(draft.checkIn) || !parseBookingDate(draft.checkOut)) {
+      showToast('Check the dates', 'Enter dates like 4 Nov 2026.', 'error');
+      return;
+    }
+    if (!(Number(draft.value.replace(/,/g, '')) > 0)) {
+      showToast('Check the booking value', 'Enter the amount paid as a number.', 'error');
+      return;
+    }
     if (!proof) {
       showToast('Add booking evidence', 'Upload the supplier confirmation before continuing.', 'error');
       return;
@@ -642,7 +691,7 @@ export function BookingFlow() {
 
   const submitClaim = useMutation({
     mutationFn: createBookingClaim,
-    onSuccess: () => finishSubmit(),
+    onSuccess: (claim) => finishSubmit(claim),
     onError: (error) => showToast('Could not submit booking', error.message, 'error'),
   });
 
@@ -655,7 +704,7 @@ export function BookingFlow() {
         ...selected,
         reference: newReference.trim() || selected.reference,
         status: duplicate ? 'Duplicate' : 'Awaiting supplier',
-        duplicateRegisteredOn: duplicate ? '2 Nov' : undefined,
+        duplicateRegisteredOn: undefined,
         miles: duplicate ? 0 : selected.miles,
         supplierQuestion: undefined,
         statusHistory: [
@@ -665,8 +714,8 @@ export function BookingFlow() {
             : { label: 'You answered the supplier', date: 'Just now' },
         ],
       };
-      setBookings((current) => current.map((booking) => (booking.id === updated.id ? updated : booking)));
-      setSelected(updated);
+      void queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      setPicked(updated);
       setNewReference('');
       showToast(
         duplicate ? 'Reference already claimed' : 'Answer sent',
@@ -678,7 +727,10 @@ export function BookingFlow() {
   });
 
   const submitBooking = () => {
+    if (!proof || !draft.category) return;
     submitClaim.mutate({
+      categoryKey: categoryKeys[draft.category],
+      partnerId: draft.partnerId,
       supplierReference: draft.reference,
       title: draft.supplier,
       amount: Number(draft.value.replace(/,/g, '')),
@@ -686,31 +738,17 @@ export function BookingFlow() {
       startDate: draft.checkIn,
       endDate: draft.checkOut,
       declarationAccepted: confirmBooking,
+      evidence: proof,
+      idempotencyKey: submitKey.current,
     });
   };
 
-  const finishSubmit = () => {
-    const reference = `WM-${Math.floor(49000 + Math.random() * 900)}`;
-    const category = draft.category ?? 'Hotel chain';
-    const booking: Booking = {
-      id: reference,
-      partner: draft.supplier,
-      category,
-      supplier: draft.supplier,
-      reference: draft.reference,
-      traveler: 'Daniel Reed',
-      travelDates: `${draft.checkIn}–${draft.checkOut}`,
-      bookingValue: `${draft.currency} ${draft.value}`,
-      currency: draft.currency,
-      submittedDate: 'Just now',
-      miles: milesEstimate,
-      status: 'Awaiting supplier',
-      evidenceName: proof?.name ?? '',
-      statusHistory: [{ label: 'Registered', date: 'Just now' }],
-    };
-    setBookings((current) => [booking, ...current]);
-    setSubmittedReference(reference);
-    setSelected(booking);
+  const finishSubmit = (claim: BookingClaim) => {
+    const booking = toBooking(claim);
+    void queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    submitKey.current = newIdempotencyKey();
+    setSubmittedReference(booking.id);
+    setPicked(booking);
     setScreen('submitted');
   };
 
@@ -721,6 +759,17 @@ export function BookingFlow() {
     setScreen('appeal');
   };
 
+  const sendAppeal = useMutation({
+    mutationFn: appealClaim,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      if (selected) setPicked({ ...selected, appealed: true });
+      showToast('Appeal sent', 'The supplier will review your booking again.', 'success');
+      setScreen('detail');
+    },
+    onError: (error) => showToast('Could not send your appeal', error.message, 'error'),
+  });
+
   const submitAppeal = () => {
     if (!appealReason) {
       showToast('Choose a reason', 'Select why you would like the supplier to review this booking.', 'error');
@@ -730,17 +779,17 @@ export function BookingFlow() {
       showToast('Attach the revised confirmation', 'Upload supporting evidence before sending your appeal.', 'error');
       return;
     }
-    if (selected) {
-      const updated = { ...selected, status: 'Awaiting supplier' as const };
-      setBookings((current) => current.map((booking) => (booking.id === updated.id ? updated : booking)));
-      setSelected(updated);
-    }
-    showToast('Appeal sent', 'The supplier will review your booking again.', 'success');
-    setScreen('detail');
+    if (!selected || sendAppeal.isPending) return;
+    sendAppeal.mutate({
+      id: selected.claimId,
+      reasonCode: appealCodes[appealReason] ?? 'other',
+      message: appealDetails,
+      evidence: appealProof,
+    });
   };
 
   const openBooking = (booking: Booking) => {
-    setSelected(booking);
+    setPicked(booking);
     setScreen('detail');
   };
 
@@ -787,11 +836,11 @@ export function BookingFlow() {
       caption="Send a new reference"
       value={`Your miles stay pending until ${selected.supplier.split(' ')[0]} confirms`}
       buttonLabel={answerClaim.isPending ? 'Sending…' : 'Send'}
-      onPress={() => answerClaim.mutate({ id: selected.id, message: '', supplierReference: newReference.trim() || undefined })}
+      onPress={() => answerClaim.mutate({ id: selected.claimId, message: '', supplierReference: newReference.trim() || undefined })}
       bottomInset={insets.bottom}
       disabled={answerClaim.isPending || !newReference.trim()}
     />
-  ) : screen === 'detail' && selected?.status === 'Duplicate' ? (
+  ) : screen === 'detail' && selected?.status === 'Duplicate' && !selected.appealed ? (
     <StickyActionBar
       caption="Ask Beverly to review"
       value="If the other claim is wrong, Beverly can move it to you"
@@ -807,10 +856,10 @@ export function BookingFlow() {
       onPress={() => showToast('Miles credited', `${formatMiles(selected.miles)} miles were credited to your balance.`, 'success')}
       bottomInset={insets.bottom}
     />
-  ) : screen === 'detail' && selected?.status === 'Reversed' ? (
+  ) : screen === 'detail' && selected?.status === 'Reversed' && !selected.appealed ? (
     <StickyActionBar
       caption="Ask the supplier to review"
-      value="Anantara decides the appeal"
+      value={`${selected.supplier.split(' ')[0]} decides the appeal`}
       buttonLabel="Appeal"
       onPress={openAppeal}
       bottomInset={insets.bottom}
@@ -820,7 +869,14 @@ export function BookingFlow() {
   return (
     <View className="flex-1 bg-[#F7F8FA]">
       {screen === 'list' ? (
-        <ListHero topInset={insets.top} onRegister={beginRegistration} onFilter={() => setFilterOpen(true)} />
+        <ListHero
+          topInset={insets.top}
+          onRegister={beginRegistration}
+          onFilter={() => setFilterOpen(true)}
+          pendingMiles={summary?.pendingMiles ?? 0}
+          awaiting={summary?.awaiting ?? 0}
+          confirmedThisYear={summary?.confirmedThisYear ?? 0}
+        />
       ) : null}
 
       {screen === 'type' ? (
@@ -886,7 +942,14 @@ export function BookingFlow() {
               <Text className="text-[11px] font-semibold tracking-[0.7px] text-[#737A89]">YOUR BOOKINGS</Text>
               <Text className="text-[10px] text-[#858C99]">{visibleBookings.length} bookings</Text>
             </View>
-            {visibleBookings.length ? visibleBookings.map((booking) => (
+            {listQuery.isPending ? (
+              <Text className="py-8 text-center text-[12px] text-[#737A89]">Loading your bookings…</Text>
+            ) : listQuery.isError ? (
+              <Pressable onPress={() => void listQuery.refetch()} className="items-center rounded-[14px] border border-[#E8EAF0] bg-white px-5 py-9">
+                <Text className="text-[15px] font-semibold text-[#252B3A]">Could not load your bookings</Text>
+                <Text className="mt-1 text-center text-[12px] text-[#737A89]">{listQuery.error.message} Tap to try again.</Text>
+              </Pressable>
+            ) : visibleBookings.length ? visibleBookings.map((booking) => (
               <BookingCard key={booking.id} booking={booking} onPress={() => openBooking(booking)} />
             )) : (
               <View className="items-center rounded-[14px] border border-[#E8EAF0] bg-white px-5 py-9">
@@ -931,7 +994,7 @@ export function BookingFlow() {
                         key={item}
                         accessibilityRole="radio"
                         accessibilityState={{ checked: active }}
-                        onPress={() => updateDraft('category', item)}
+                        onPress={() => chooseCategory(item)}
                         className={`mr-1.5 flex-1 items-center rounded-[12px] border px-1 py-2 ${active ? 'border-[#4145B6] bg-[#F0F1FB]' : 'border-[#E8EAF0] bg-white'}`}
                       >
                         <View className={`mb-1.5 h-7 w-7 items-center justify-center rounded-[8px] ${index === 3 ? 'bg-[#F5AE23]' : 'bg-[#4145B6]'}`}>
@@ -958,7 +1021,7 @@ export function BookingFlow() {
                   <Pressable
                     accessibilityRole="radio"
                     accessibilityState={{ checked: active }}
-                    onPress={() => updateDraft('category', item.title)}
+                    onPress={() => chooseCategory(item.title)}
                     className="min-h-[52px] flex-row items-center border-b border-[#E8EAF0] py-2"
                   >
                     <View className="mr-3 w-6 items-center"><Icon color={active ? '#4145B6' : '#697181'} size={15} /></View>
@@ -1199,7 +1262,7 @@ export function BookingFlow() {
                     {selected.status === 'Approved'
                       ? `Credited automatically when ${selected.supplier.split(' ')[0]} confirmed`
                       : selected.status === 'Reversed'
-                        ? `${selected.supplier.split(' ')[0]} reversed their confirmation on 2 Oct`
+                        ? `${selected.supplier.split(' ')[0]} reversed their confirmation on ${selected.statusHistory.find((item) => item.reversed)?.date.split(',')[0] ?? 'an earlier date'}`
                         : 'We will credit your miles as soon as the supplier confirms'}
                   </Text>
                 </View>
@@ -1275,14 +1338,24 @@ export function BookingFlow() {
           <Pressable onPress={(event) => event.stopPropagation()} className="rounded-t-[22px] bg-white px-5 pb-8 pt-4">
             <View className="mb-4 h-1 w-9 self-center rounded-full bg-[#D7DAE2]" />
             <Text className="mb-3 text-[17px] font-semibold text-[#252B3A]">Choose supplier</Text>
-            {suppliers.map((supplier) => (
+            {partners.isPending ? (
+              <Text className="py-4 text-[12px] text-[#737A89]">Loading suppliers…</Text>
+            ) : partners.isError ? (
+              <Text className="py-4 text-[12px] text-[#B63D45]">{partners.error.message}</Text>
+            ) : partners.data.length === 0 ? (
+              <Text className="py-4 text-[12px] text-[#737A89]">No suppliers offer this category yet.</Text>
+            ) : null}
+            {(partners.data ?? []).map((supplier) => (
               <Pressable
-                key={supplier}
-                onPress={() => { updateDraft('supplier', supplier); setSupplierOpen(false); }}
+                key={supplier.id}
+                onPress={() => {
+                  setDraft((current) => ({ ...current, supplier: supplier.name, partnerId: supplier.id }));
+                  setSupplierOpen(false);
+                }}
                 className="min-h-11 flex-row items-center justify-between border-b border-[#EEF0F4]"
               >
-                <Text className="text-[13px] text-[#303748]">{supplier}</Text>
-                {draft.supplier === supplier ? <CheckCircle2 color="#4145B6" size={17} /> : <ChevronRight color="#A1A7B2" size={16} />}
+                <Text className="text-[13px] text-[#303748]">{supplier.name}</Text>
+                {draft.partnerId === supplier.id ? <CheckCircle2 color="#4145B6" size={17} /> : <ChevronRight color="#A1A7B2" size={16} />}
               </Pressable>
             ))}
           </Pressable>
@@ -1356,7 +1429,7 @@ export function BookingFlow() {
                   <Text className="text-[12px] font-medium text-[#252B3A]">Cancel</Text>
                 </Pressable>
                 <Pressable onPress={submitAppeal} className="min-h-10 flex-1 items-center justify-center rounded-full bg-[#FFB91F]">
-                  <Text className="text-[12px] font-semibold text-[#171923]">Send to supplier</Text>
+                  <Text className="text-[12px] font-semibold text-[#171923]">{sendAppeal.isPending ? 'Sending…' : 'Send to supplier'}</Text>
                 </Pressable>
               </View>
             </ScrollView>

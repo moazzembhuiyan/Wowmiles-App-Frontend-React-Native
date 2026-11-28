@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { Award, ArrowLeft } from 'lucide-react-native';
+import { ApiError } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/auth-context';
 import { AuthField, AuthFooter, AuthHero, AuthPasswordField } from '@/components/figma-auth';
 import { useToast } from '@/components/toast';
 
@@ -9,14 +11,25 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const showToast = useToast();
+  const auth = useAuth();
 
-  function login() {
+  async function login() {
+    if (submitting) return;
     if (!email.includes('@') || !password) {
       showToast('Unable to log in', 'Enter a valid work email and password.');
       return;
     }
-    router.replace('/(tabs)');
+    setSubmitting(true);
+    try {
+      const route = await auth.login({ email: email.trim().toLowerCase(), password, rememberMe: remember });
+      router.replace(route);
+    } catch (error) {
+      showToast('Unable to log in', error instanceof ApiError ? error.message : 'Something went wrong. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -88,8 +101,8 @@ export default function LoginScreen() {
       <AuthFooter
         eyebrow={email ? 'Signing in as' : 'Continue with your account'}
         title={email || 'Beverly Travel Ltd.'}
-        buttonLabel="Log in"
-        onPress={login}
+        buttonLabel={submitting ? 'Logging in' : 'Log in'}
+        onPress={() => void login()}
       />
     </View>
   );

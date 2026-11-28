@@ -4,11 +4,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CreditCard, Lock } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { BottomBar, CheckoutHeader, CheckoutScreen, FootNote, GoldButton, miles } from '@/components/money-ui';
+import { BottomBar, CheckoutHeader, CheckoutScreen, FootNote, miles } from '@/components/money-ui';
 import { QueryView } from '@/components/states';
-import { getReward, getRewardMeta } from '@/components/rewards-data';
+import { RewardGate } from '@/components/reward-gate';
+import type { Reward } from '@/lib/api/rewards';
 import { useToast } from '@/components/toast';
-import { Field } from '@/components/ui';
 import {
   addPaymentMethod,
   cashFor,
@@ -16,40 +16,42 @@ import {
   formatEur,
   getCheckoutDraft,
   getPaymentMethods,
+  retryPayment,
 } from '@/lib/api/redemptions';
 
 const MILES_PER_EUR = 10;
 
-export default function CheckoutPaymentScreen() {
+export default function CheckoutPaymentScreenRoute() {
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const reward = getReward(id);
-  const meta = getRewardMeta(reward.id);
-  const draft = getCheckoutDraft(reward.id);
-  const cash = cashFor(reward.cost, draft.miles);
-  const supplierCount = new Set(draft.allocation.map((line) => line.supplier)).size || 4;
+  return <RewardGate id={id}>{(reward) => <CheckoutPaymentScreen reward={reward} />}</RewardGate>;
+}
+
+function CheckoutPaymentScreen({ reward }: { reward: Reward }) {
+  const { retry } = useLocalSearchParams<{ id?: string; retry?: string }>();
+  const draft = getCheckoutDraft(reward);
+  // Server quote from the Miles + Cash screen; the local estimate only covers a missing quote.
+  const cash = draft.cashMinor || cashFor(reward.cost, draft.miles);
+  const supplierCount = new Set(draft.allocation.map((line) => line.supplier)).size;
   const Icon = reward.Icon;
   const showToast = useToast();
   const queryClient = useQueryClient();
   const methods = useQuery({ queryKey: ['payment-methods'], queryFn: getPaymentMethods });
   const [chosen, setChosen] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiry, setExpiry] = useState('');
 
   const addCard = useMutation({
     mutationFn: addPaymentMethod,
     onSuccess: async (method) => {
       await queryClient.invalidateQueries({ queryKey: ['payment-methods'] });
-      setChosen(method.id);
-      setAdding(false);
-      setCardNumber('');
-      setExpiry('');
+      if (method) setChosen(method.id);
     },
     onError: (error) => showToast('Could not add card', error.message),
   });
 
   const pay = useMutation({
-    mutationFn: createRedemption,
+    mutationFn: (input: { paymentMethod?: string }) =>
+      retry && input.paymentMethod
+        ? retryPayment({ id: retry, paymentMethod: input.paymentMethod })
+        : createRedemption({ draft, paymentMethod: input.paymentMethod }),
     onSuccess: (redemption) => {
       const params = { rid: redemption.id };
       if (redemption.status === 'payment_failed') {
@@ -72,7 +74,7 @@ export default function CheckoutPaymentScreen() {
           action="Confirm payment"
           loading={pay.isPending}
           disabled={!methods.data?.length}
-          onPress={() => pay.mutate({ draft, paymentMethod: chosen ?? methods.data?.[0]?.id })}
+          onPress={() => pay.mutate({ paymentMethod: chosen ?? methods.data?.[0]?.id })}
         />
       }
     >
@@ -86,14 +88,14 @@ export default function CheckoutPaymentScreen() {
           </View>
           <View className="flex-1">
             <Text className="text-[16px] font-medium text-white">{reward.title}</Text>
-            <Text className="mt-0.5 text-[13px] text-white/70">{meta.providerName}</Text>
+            <Text className="mt-0.5 text-[13px] text-white/70">{reward.providerName}</Text>
           </View>
         </View>
         <View className="px-4">
           {[
             { label: 'Reward value', value: formatEur((reward.cost * 100) / MILES_PER_EUR) },
             { label: 'Miles used', value: `${miles(draft.miles)} · worth ${formatEur((draft.miles * 100) / MILES_PER_EUR)}` },
-            { label: 'Miles from', value: `${supplierCount} suppliers` },
+            { label: 'Miles from', value: supplierCount ? `${supplierCount} ${supplierCount === 1 ? 'supplier' : 'suppliers'}` : 'Oldest miles first' },
             { label: 'Cash to pay', value: formatEur(cash), strong: true },
           ].map((row, index, list) => (
             <View key={row.label} className={`flex-row items-center justify-between py-3.5 ${index < list.length - 1 ? 'border-b border-[#EEF0F4]' : ''}`}>
@@ -137,24 +139,17 @@ export default function CheckoutPaymentScreen() {
         )}
       </QueryView>
 
-      {adding ? (
-        <View className="mb-3 rounded-[16px] border border-line bg-white p-4">
-          <Field label="Card number" value={cardNumber} onChangeText={setCardNumber} placeholder="1234 5678 9012 3456" keyboardType="number-pad" />
-          <Field label="Expiry (MM/YY)" value={expiry} onChangeText={setExpiry} placeholder="09/28" keyboardType="numbers-and-punctuation" />
-          <GoldButton title="Save card" loading={addCard.isPending} onPress={() => addCard.mutate({ number: cardNumber, expiry })} />
+      <Pressable
+        accessibilityRole="button"
+        disabled={addCard.isPending}
+        onPress={() => addCard.mutate()}
+        className="mb-5 flex-row items-center rounded-[16px] border border-line bg-white p-3.5 disabled:opacity-50"
+      >
+        <View className="mr-3 h-11 w-11 items-center justify-center rounded-[12px] bg-[#F1F3F7]">
+          <CreditCard color="#8991A0" size={19} />
         </View>
-      ) : (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setAdding(true)}
-          className="mb-5 flex-row items-center rounded-[16px] border border-line bg-white p-3.5"
-        >
-          <View className="mr-3 h-11 w-11 items-center justify-center rounded-[12px] bg-[#F1F3F7]">
-            <CreditCard color="#8991A0" size={19} />
-          </View>
-          <Text className="text-[16px] font-medium text-ink">Add a new card</Text>
-        </Pressable>
-      )}
+        <Text className="text-[16px] font-medium text-ink">{addCard.isPending ? 'Opening secure card form…' : 'Add a new card'}</Text>
+      </Pressable>
 
       <FootNote icon={<Lock color="#858B98" size={16} />}>
         {`Your ${miles(draft.miles)} miles are held until payment completes. If the payment fails they go back to the supplier balances they came from.`}

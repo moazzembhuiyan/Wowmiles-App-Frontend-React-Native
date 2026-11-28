@@ -6,14 +6,17 @@ import { ExternalLink } from 'lucide-react-native';
 import { Text, View } from 'react-native';
 import { MilesHeader, MilesScreen } from '@/components/miles-ui';
 import { Banner, Card, Eyebrow, GoldButton, KeyValue, miles, TextButton } from '@/components/money-ui';
-import { getReward, getRewardMeta } from '@/components/rewards-data';
+import { RewardGate } from '@/components/reward-gate';
+import type { Reward } from '@/lib/api/rewards';
 import { useToast } from '@/components/toast';
 import { createRedemption, formatEur, getCheckoutDraft, previewQuote } from '@/lib/api/redemptions';
 
-export default function ProviderSiteScreen() {
+export default function ProviderSiteRoute() {
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const reward = getReward(id);
-  const meta = getRewardMeta(reward.id);
+  return <RewardGate id={id}>{(reward) => <ProviderSiteScreen reward={reward} />}</RewardGate>;
+}
+
+function ProviderSiteScreen({ reward }: { reward: Reward }) {
   const showToast = useToast();
   const quote = useQuery({
     queryKey: ['quote-preview', reward.id, reward.cost],
@@ -21,7 +24,7 @@ export default function ProviderSiteScreen() {
   });
 
   const redeem = useMutation({
-    mutationFn: () => createRedemption({ draft: getCheckoutDraft(reward.id) }),
+    mutationFn: () => createRedemption({ draft: getCheckoutDraft(reward) }),
     onError: (error) => showToast('Could not redeem', error.message),
   });
 
@@ -69,10 +72,10 @@ export default function ProviderSiteScreen() {
             </Text>
           </Card>
           <Banner tone="info" title="Pay the rest on their site">
-            You will complete the booking with {meta.providerName}. No card is taken by WowMiles.
+            You will complete the booking with {reward.providerName}. No card is taken by WowMiles.
           </Banner>
           <GoldButton
-            title={`Continue on ${meta.providerName}`}
+            title={`Continue on ${reward.providerName}`}
             onPress={() => done.providerUrl && void openProvider(done.providerUrl)}
           />
           <TextButton title="Redemption history" onPress={() => router.replace('/redemption-history')} />
@@ -80,12 +83,12 @@ export default function ProviderSiteScreen() {
       ) : (
         <>
           <Banner tone="warning" title="Your miles are spent now">
-            This reward is booked on {meta.providerName}&apos;s own site. Your miles are used when you continue, and you get a
+            This reward is booked on {reward.providerName}&apos;s own site. Your miles are used when you continue, and you get a
             discount code to enter there.
           </Banner>
           <View className="mb-1 flex-row items-center justify-center">
             <ExternalLink color="#747B8B" size={14} />
-            <Text className="ml-1.5 text-[12px] text-muted">Opens {meta.providerName} in your browser</Text>
+            <Text className="ml-1.5 text-[12px] text-muted">Opens {reward.providerName} in your browser</Text>
           </View>
           <View className="h-3" />
           <GoldButton title="Redeem and get my code" loading={redeem.isPending} onPress={() => redeem.mutate()} />

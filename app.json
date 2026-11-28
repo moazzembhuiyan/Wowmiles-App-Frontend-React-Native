@@ -29,7 +29,9 @@
           "style": "dark"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "expo-secure-store",
+      "@stripe/stripe-react-native"
     ],
     "experiments": {
       "typedRoutes": true

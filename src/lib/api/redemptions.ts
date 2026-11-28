@@ -1,6 +1,6 @@
-import { getReward, getRewardMeta, type Fulfilment } from '@/components/rewards-data';
-import { ApiError, mockResponse } from './client';
-import { mockWallet } from './wallet';
+import { ApiError, apiGet, apiPost, apiRequest, newIdempotencyKey, queryClient, requireId } from './client';
+import { addCard } from './card-entry';
+import type { Fulfilment, Reward } from './rewards';
 
 const MILES_PER_EUR = 10;
 const MIN_CASH_MINOR = 50;
@@ -42,9 +42,36 @@ export type RedemptionStatus =
   | 'awaiting_payment'
   | 'awaiting_provider'
   | 'confirmed'
+  | 'fulfilled'
+  | 'used'
   | 'payment_failed'
   | 'refunded'
+  | 'timed_out'
   | 'cancelled';
+
+/** How the history groups a redemption (`GET /me/redemptions`). */
+export type RedemptionDisplayStatus = 'awaiting' | 'active' | 'fulfilled' | 'used' | 'refunded' | 'cancelled';
+
+/** One row of `GET /me/redemptions`. */
+export type RedemptionHistoryItem = {
+  id: string;
+  publicId: string;
+  status: RedemptionStatus;
+  displayStatus: RedemptionDisplayStatus;
+  reward: { id: string; title: string };
+  miles: number;
+  cashMinor: number;
+  voucher: { code: string; status: string; validUntil: string; usedAt: string | null } | null;
+  fulfilledAt: string | null;
+  usedAt: string | null;
+  createdAt: string;
+};
+
+export type RedemptionHistory = {
+  items: RedemptionHistoryItem[];
+  /** Miles redeemed all time; held miles are not counted. */
+  summary: { redeemedAllTime: number; count: number; since: string | null };
+};
 
 /** Mirrors `GET /me/redemptions/:id` and the `POST /redemptions` response. */
 export type RedemptionDetail = {
@@ -86,191 +113,214 @@ export const formatEur = (minor: number) =>
     maximumFractionDigits: 2,
   })}`;
 
-const sources: EligibleSources = {
-  available: mockWallet.available,
-  sources: [
-    { supplier: { id: 's-hilton', name: 'Hilton Hotels', avatar: null }, available: 12400 },
-    { supplier: { id: 's-emirates', name: 'Emirates', avatar: null }, available: 18200 },
-    { supplier: { id: 's-msc', name: 'MSC Cruises', avatar: null }, available: 9800 },
-    { supplier: null, available: 8100 },
-  ],
-};
-
+/** `GET /redemptions/eligible-sources`. */
 export function getEligibleSources() {
-  return mockResponse(sources);
-}
-
-function autoAllocate(miles: number): AllocationLine[] {
-  let left = miles;
-  const lines: AllocationLine[] = [];
-  for (const source of sources.sources) {
-    if (left <= 0) break;
-    const take = Math.min(left, source.available);
-    lines.push({ supplier: source.supplier?.id ?? null, miles: take });
-    left -= take;
-  }
-  return lines;
+  return apiGet<EligibleSources>('/redemptions/eligible-sources');
 }
 
 /** Most miles that can go towards a reward: all of it, or the whole balance when the reward costs more. */
-export function maxMilesFor(price: number) {
-  return Math.min(price, mockWallet.available);
+export function maxMilesFor(price: number, balance: number) {
+  return Math.min(price, balance);
 }
 
+/**
+ * Instant estimate of the cash part, only for a hint while the server quote loads (label it as an estimate):
+ * EUR 0.10 per mile, at least EUR 0.50. The quote (`previewQuote`) is authoritative.
+ */
 export function cashFor(price: number, miles: number) {
   if (miles >= price) return 0;
   return Math.max(MIN_CASH_MINOR, Math.ceil(((price - miles) * 100) / MILES_PER_EUR));
 }
 
+const toQuoteBody = (input: { rewardId: string; miles?: number; allocation?: AllocationLine[] }) => ({
+  reward: requireId(input.rewardId),
+  miles: input.miles,
+  allocation: input.allocation?.length ? input.allocation : undefined,
+});
+
+/** `POST /redemptions/quotes?preview=true`: nothing is stored or held. */
 export function previewQuote(input: { rewardId: string; miles?: number; allocation?: AllocationLine[] }) {
-  const reward = getReward(input.rewardId);
-  const meta = getRewardMeta(input.rewardId);
-  const miles = input.miles ?? reward.cost;
-  if (miles < reward.cost && !meta.allowMilesCash) {
-    return Promise.reject(new ApiError('Miles + Cash is not available for this reward.', 422, 'MILES_CASH_UNAVAILABLE'));
-  }
-  if (miles < reward.cost && miles < MIN_MILES_FOR_CASH) {
-    return Promise.reject(
-      new ApiError(`Use at least ${MIN_MILES_FOR_CASH.toLocaleString('en-US')} miles.`, 422, 'MILES_BELOW_MINIMUM'),
-    );
-  }
-  if (miles > mockWallet.available) {
-    return Promise.reject(new ApiError('You do not have enough miles.', 422, 'INSUFFICIENT_MILES'));
-  }
-  const manual = !!input.allocation?.length;
-  if (manual && input.allocation!.reduce((sum, line) => sum + line.miles, 0) !== miles) {
-    return Promise.reject(
-      new ApiError('The miles you chose do not add up to the amount needed.', 422, 'INVALID_ALLOCATION'),
-    );
-  }
-  const data: QuotePreview = {
-    preview: true,
-    reward: reward.id,
-    miles,
-    cashMinor: cashFor(reward.cost, miles),
-    allocationMode: manual ? 'manual' : 'automatic',
-    allocation: manual ? input.allocation! : autoAllocate(miles),
-    balanceAfter: mockWallet.available - miles,
-    discountMinor: meta.fulfilment === 'provider_site' ? 2000 : 0,
-    cashDueAtProviderMinor: meta.fulfilment === 'provider_site' ? 14500 : 0,
-  };
-  return mockResponse(data);
+  return apiPost<QuotePreview>('/redemptions/quotes', toQuoteBody(input), { query: { preview: true } });
 }
 
-/** Choices carried between checkout screens until the redemption is created (a quote id once the backend is wired). */
+/** An in-flight "create redemption" action: its key and quote are reused when the same action is retried. */
+type PendingCreate = { key: string; quoteId: string | null; paymentMethod: string | undefined };
+
+/** Choices carried between checkout screens until the redemption is created. */
 export type CheckoutDraft = {
   rewardId: string;
   miles: number;
+  /** Cash part from the last server quote; 0 while the whole price is paid in miles. */
+  cashMinor: number;
   allocationMode: AllocationMode;
   allocation: AllocationLine[];
   request: RedemptionRequest | null;
+  pending?: PendingCreate | null;
 };
 
 let draft: CheckoutDraft | null = null;
 
-export function startCheckout(rewardId: string) {
-  draft = { rewardId, miles: getReward(rewardId).cost, allocationMode: 'automatic', allocation: [], request: null };
+type CheckoutReward = Pick<Reward, 'id' | 'cost'>;
+
+export function startCheckout(reward: CheckoutReward) {
+  draft = { rewardId: reward.id, miles: reward.cost, cashMinor: 0, allocationMode: 'automatic', allocation: [], request: null };
   return draft;
 }
 
-export function getCheckoutDraft(rewardId: string): CheckoutDraft {
-  if (!draft || draft.rewardId !== rewardId) return startCheckout(rewardId);
+export function getCheckoutDraft(reward: CheckoutReward): CheckoutDraft {
+  if (!draft || draft.rewardId !== reward.id) return startCheckout(reward);
   return draft;
 }
 
-export function updateCheckoutDraft(rewardId: string, patch: Partial<CheckoutDraft>) {
-  draft = { ...getCheckoutDraft(rewardId), ...patch };
+/** Changing a choice makes the next submit a new action (new quote, new idempotency key). */
+export function updateCheckoutDraft(reward: CheckoutReward, patch: Partial<CheckoutDraft>) {
+  draft = { ...getCheckoutDraft(reward), ...patch, pending: null };
   return draft;
 }
 
-const paymentMethods: PaymentMethod[] = [{ id: 'pm_visa4417', brand: 'Visa', last4: '4417', expMonth: 9, expYear: 2028 }];
-
+/** `GET /payments/methods`. */
 export function getPaymentMethods() {
-  return mockResponse([...paymentMethods]);
+  return apiGet<PaymentMethod[]>('/payments/methods');
 }
 
-/** Adds a card (`POST /payments/setup-intent`, then the card form). A card ending 0002 is declined at payment. */
-export function addPaymentMethod(input: { number: string; expiry: string }) {
-  const digits = input.number.replace(/\D/g, '');
-  const [month, year] = input.expiry.split('/');
-  if (digits.length < 12 || !month || !year) {
-    return Promise.reject(new ApiError('Enter a valid card number and expiry (MM/YY).', 400));
-  }
-  const method: PaymentMethod = {
-    id: `pm_${digits.slice(-4)}${paymentMethods.length}`,
-    brand: digits.startsWith('5') ? 'Mastercard' : 'Visa',
-    last4: digits.slice(-4),
-    expMonth: Number(month),
-    expYear: 2000 + Number(year),
+/**
+ * Adds a card with the Stripe Payment Sheet in setup mode (`POST /payments/setup-intent`); the card details go to
+ * Stripe directly. Resolves with the new card, or null when the sheet was dismissed. Needs a development build.
+ */
+export async function addPaymentMethod(): Promise<PaymentMethod | null> {
+  const before = new Set((await getPaymentMethods()).map((method) => method.id));
+  const added = await addCard(() => apiPost<{ setupIntentId: string; clientSecret: string }>('/payments/setup-intent'));
+  if (!added) return null;
+  await queryClient.invalidateQueries({ queryKey: ['payment-methods'] });
+  const methods = await getPaymentMethods();
+  return methods.find((method) => !before.has(method.id)) ?? methods[methods.length - 1] ?? null;
+}
+
+type RawRedemption = {
+  id: string;
+  publicId: string;
+  status: RedemptionStatus;
+  reward: { id: string; title: string; fulfilment: Fulfilment };
+  miles: number;
+  cashMinor: number;
+  currency: 'EUR';
+  allocation: RedemptionDetail['allocation'];
+  payment: RedemptionDetail['payment'];
+  hold: RedemptionDetail['hold'];
+  providerDeadline: string | null;
+  voucher: { code: string; validUntil: string } | null;
+  providerUrl?: string | null;
+  discountMinor?: number;
+  cashDueAtProviderMinor?: number;
+  request: RedemptionRequest | null;
+  createdAt: string;
+};
+
+function toRedemption(raw: RawRedemption): RedemptionDetail {
+  return {
+    id: raw.id,
+    publicId: raw.publicId,
+    status: raw.status,
+    fulfilment: raw.reward.fulfilment,
+    reward: { id: raw.reward.id, title: raw.reward.title },
+    miles: raw.miles,
+    cashMinor: raw.cashMinor,
+    currency: raw.currency,
+    allocation: raw.allocation ?? [],
+    payment: raw.payment ?? null,
+    hold: raw.hold ?? null,
+    providerDeadline: raw.providerDeadline ?? null,
+    voucher: raw.voucher ? { code: raw.voucher.code, validUntil: raw.voucher.validUntil } : null,
+    providerUrl: raw.providerUrl || null,
+    discountMinor: raw.discountMinor ?? 0,
+    cashDueAtProviderMinor: raw.cashDueAtProviderMinor ?? 0,
+    request: raw.request ?? null,
+    createdAt: raw.createdAt,
   };
-  paymentMethods.push(method);
-  return mockResponse(method);
 }
 
-const created = new Map<string, RedemptionDetail>();
-let sequence = 10420;
-
-export function createRedemption(input: { draft: CheckoutDraft; paymentMethod?: string }) {
-  const reward = getReward(input.draft.rewardId);
-  const meta = getRewardMeta(reward.id);
-  const cashMinor = cashFor(reward.cost, input.draft.miles);
-  const method = paymentMethods.find((item) => item.id === input.paymentMethod);
-  if (cashMinor > 0 && !method) {
-    return Promise.reject(new ApiError('Choose a card to pay the cash part.', 400, 'PAYMENT_METHOD_REQUIRED'));
-  }
-  const failed = cashMinor > 0 && method?.last4 === '0002';
-  const now = new Date();
-  const providerConfirm = meta.fulfilment === 'provider_confirm';
-  const providerSite = meta.fulfilment === 'provider_site';
-  sequence += 1;
-
-  const detail: RedemptionDetail = {
-    id: `rd-${sequence}`,
-    publicId: `RD-${sequence}`,
-    status: failed ? 'payment_failed' : providerConfirm ? 'awaiting_provider' : 'confirmed',
-    fulfilment: meta.fulfilment,
-    reward: { id: reward.id, title: reward.title },
-    miles: input.draft.miles,
-    cashMinor,
-    currency: 'EUR',
-    allocation: (input.draft.allocation.length ? input.draft.allocation : autoAllocate(input.draft.miles)).map(
-      (line) => ({
-        supplier: sources.sources.find((s) => s.supplier?.id === line.supplier)?.supplier ?? null,
-        miles: line.miles,
-      }),
-    ),
-    payment: cashMinor
-      ? {
-          status: failed ? 'failed' : 'succeeded',
-          amountMinor: cashMinor,
-          currency: 'EUR',
-          card: method ? { brand: method.brand, last4: method.last4 } : null,
-          failureMessage: failed ? 'Your card was declined.' : null,
-          attempts: 1,
-          canRetry: failed,
-          retryUntil: failed ? new Date(now.getTime() + 24 * 3600 * 1000).toISOString() : null,
-        }
-      : null,
-    hold:
-      providerConfirm && !failed
-        ? { held: true, miles: input.draft.miles, since: now.toISOString(), releasedAt: null, balanceIfDeclined: mockWallet.available }
-        : null,
-    providerDeadline:
-      providerConfirm && !failed ? new Date(now.getTime() + 48 * 3600 * 1000).toISOString() : null,
-    voucher:
-      !providerConfirm && !failed ? { code: reward.voucherCode, validUntil: '2027-10-31T00:00:00.000Z' } : null,
-    providerUrl: providerSite ? (meta.providerUrl ?? null) : null,
-    discountMinor: providerSite ? 2000 : 0,
-    cashDueAtProviderMinor: providerSite ? 14500 : 0,
-    request: input.draft.request,
-    createdAt: now.toISOString(),
+/** Optional date fields the backend expects as `YYYY-MM-DD` or null, never an empty string. */
+function requestBody(request: RedemptionRequest | null) {
+  if (!request) return undefined;
+  return {
+    preferredDate: request.preferredDate || null,
+    secondChoiceDate: request.secondChoiceDate || null,
+    endDate: request.endDate || null,
+    guests: request.guests,
+    pickup: request.pickup,
+    notes: request.notes,
   };
-  created.set(detail.id, detail);
-  return mockResponse(detail, 600);
 }
 
-export function getRedemption(id: string) {
-  const found = created.get(id);
-  if (!found) return Promise.reject(new ApiError('Redemption not found', 404));
-  return mockResponse(found);
+/** Codes after which the stored quote or key cannot be reused. */
+const STALE_CODES = ['QUOTE_EXPIRED', 'QUOTE_USED', 'IDEMPOTENCY_KEY_REUSED'];
+
+/**
+ * `POST /redemptions/quotes` then `POST /redemptions` with an `Idempotency-Key`. The key and quote are kept on
+ * the draft, so a retry after a network error replays the first request instead of redeeming twice.
+ */
+export async function createRedemption(input: { draft: CheckoutDraft; paymentMethod?: string }): Promise<RedemptionDetail> {
+  const current = input.draft;
+  let pending = current.pending;
+  if (!pending || pending.paymentMethod !== input.paymentMethod) {
+    pending = { key: newIdempotencyKey(), quoteId: pending?.quoteId ?? null, paymentMethod: input.paymentMethod };
+    current.pending = pending;
+  }
+  try {
+    if (!pending.quoteId) {
+      const quote = await apiPost<{ id: string }>(
+        '/redemptions/quotes',
+        toQuoteBody({
+          rewardId: current.rewardId,
+          miles: current.miles,
+          allocation: current.allocationMode === 'manual' ? current.allocation : undefined,
+        }),
+      );
+      pending.quoteId = quote.id;
+    }
+    const raw = await apiPost<RawRedemption>(
+      '/redemptions',
+      { quote: pending.quoteId, paymentMethod: input.paymentMethod, request: requestBody(current.request) },
+      { idempotencyKey: pending.key },
+    );
+    current.pending = null;
+    void queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    void queryClient.invalidateQueries({ queryKey: ['redemptions'] });
+    return toRedemption(raw);
+  } catch (error) {
+    if (error instanceof ApiError && error.code && STALE_CODES.includes(error.code)) current.pending = null;
+    throw error;
+  }
+}
+
+const retryKeys = new Map<string, string>();
+
+/** `POST /redemptions/:id/retry-payment` with a new card, within 24 hours and up to 3 attempts. */
+export async function retryPayment(input: { id: string; paymentMethod: string }): Promise<RedemptionDetail> {
+  const id = requireId(input.id);
+  const signature = `${id}:${input.paymentMethod}`;
+  const key = retryKeys.get(signature) ?? newIdempotencyKey();
+  retryKeys.set(signature, key);
+  const raw = await apiPost<RawRedemption>(
+    `/redemptions/${id}/retry-payment`,
+    { paymentMethod: input.paymentMethod },
+    { idempotencyKey: key },
+  );
+  retryKeys.delete(signature);
+  void queryClient.invalidateQueries({ queryKey: ['wallet'] });
+  void queryClient.invalidateQueries({ queryKey: ['redemption'] });
+  void queryClient.invalidateQueries({ queryKey: ['redemptions'] });
+  return toRedemption(raw);
+}
+
+/** `GET /me/redemptions/:id`. */
+export async function getRedemption(id: string): Promise<RedemptionDetail> {
+  return toRedemption(await apiGet<RawRedemption>(`/me/redemptions/${requireId(id)}`));
+}
+
+/** `GET /me/redemptions` with the `displayStatus` of each row (held miles are excluded from the summary). */
+export async function getRedemptionHistory(): Promise<RedemptionHistory> {
+  const res = await apiRequest<RedemptionHistoryItem[]>('/me/redemptions', { query: { status: 'all', limit: 50 } });
+  const summary = (res.meta as { summary?: RedemptionHistory['summary'] } | undefined)?.summary;
+  return { items: res.data, summary: summary ?? { redeemedAllTime: 0, count: 0, since: null } };
 }

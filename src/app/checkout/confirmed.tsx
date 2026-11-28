@@ -3,16 +3,17 @@ import { useQuery } from '@tanstack/react-query';
 import { BottomBar, CheckoutScreen, FootNote, formatDate, NextSteps, OutcomeHero, SummaryCard, miles } from '@/components/money-ui';
 import { QueryView } from '@/components/states';
 import { formatEur, getRedemption } from '@/lib/api/redemptions';
-import { mockWallet } from '@/lib/api/wallet';
+import { getWallet } from '@/lib/api/wallet';
 
 export default function RedemptionConfirmedScreen() {
   const { rid } = useLocalSearchParams<{ rid?: string }>();
   const query = useQuery({ queryKey: ['redemption', rid], queryFn: () => getRedemption(String(rid)), enabled: !!rid });
+  const wallet = useQuery({ queryKey: ['wallet'], queryFn: getWallet });
 
   return (
     <QueryView query={query}>
       {(redemption) => {
-        const balance = mockWallet.available - redemption.miles;
+        const balance = wallet.data?.available ?? 0;
         return (
           <CheckoutScreen
             fullBleedTop
@@ -21,7 +22,7 @@ export default function RedemptionConfirmedScreen() {
                 caption="Miles balance now"
                 value={`${miles(balance)} miles`}
                 action="View voucher"
-                onPress={() => router.replace({ pathname: '/voucher', params: { id: redemption.reward.id } })}
+                onPress={() => router.replace({ pathname: '/voucher', params: { rid: redemption.id } })}
               />
             }
           >

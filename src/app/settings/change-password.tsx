@@ -5,11 +5,13 @@ import { useToast } from '@/components/toast';
 import { PasswordField } from '@/components/ui';
 import { FieldError, FormButton, goBack } from '@/components/hub/hub-ui';
 import { changePassword } from '@/lib/api/profile';
+import { useAuth } from '@/lib/auth/auth-context';
 
 type Errors = Partial<Record<'currentPassword' | 'password' | 'confirmPassword', string>>;
 
 export default function ChangePasswordScreen() {
   const showToast = useToast();
+  const { logout } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -18,8 +20,8 @@ export default function ChangePasswordScreen() {
   const change = useMutation({
     mutationFn: () => changePassword({ currentPassword, password, confirmPassword }),
     onSuccess: () => {
-      showToast('Password changed', 'Other devices have been signed out.', 'success');
-      goBack('/settings/security');
+      showToast('Password changed', 'Log in again with your new password.', 'success');
+      void logout();
     },
     onError: (error) => showToast('Could not change password', error.message),
   });

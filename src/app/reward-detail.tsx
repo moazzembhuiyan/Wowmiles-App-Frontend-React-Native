@@ -4,27 +4,42 @@ import { ArrowLeft, CheckCircle2, LockKeyhole } from 'lucide-react-native';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useQuery } from '@tanstack/react-query';
 import { firstCheckoutStep } from '@/components/checkout-flow';
-import { getReward, getRewardMeta } from '@/components/rewards-data';
+import { QueryView } from '@/components/states';
 import { startCheckout } from '@/lib/api/redemptions';
+import { getReward, type Reward } from '@/lib/api/rewards';
+import { getWallet } from '@/lib/api/wallet';
 
-export default function RewardDetailScreen() {
+export default function RewardDetailRoute() {
   const { id } = useLocalSearchParams<{ id?: string }>();
+  const reward = useQuery({ queryKey: ['reward', id], queryFn: () => getReward(String(id)), enabled: !!id });
+  const wallet = useQuery({ queryKey: ['wallet'], queryFn: getWallet });
+  if (reward.data) {
+    return <RewardDetailScreen reward={reward.data} balance={wallet.data?.available ?? 0} balanceKnown={wallet.isSuccess} />;
+  }
+  return (
+    <View className="flex-1 bg-[#F8F9FB] px-5 pt-24">
+      <QueryView query={reward}>{() => null}</QueryView>
+    </View>
+  );
+}
+
+function RewardDetailScreen({ reward, balance, balanceKnown }: { reward: Reward; balance: number; balanceKnown: boolean }) {
   const insets = useSafeAreaInsets();
-  const reward = getReward(id);
-  const isLocked = 'locked' in reward && reward.locked;
+  const isLocked = reward.locked;
   const cost = reward.cost.toLocaleString('en-US');
-  const needsCash = reward.cost > 48500 && getRewardMeta(reward.id).allowMilesCash;
-  const balanceAfter = Math.max(0, 48500 - reward.cost).toLocaleString('en-US');
+  const needsCash = balanceKnown && reward.cost > balance && reward.allowMilesCash;
+  const balanceAfter = balanceKnown ? Math.max(0, balance - reward.cost).toLocaleString('en-US') : '…';
   const Icon = reward.Icon;
 
   function redeem() {
     if (isLocked) {
-      router.push('/tier-benefits');
+      router.push({ pathname: '/tier-benefits', params: { tier: reward.lockedTier?.toLowerCase() } });
       return;
     }
-    startCheckout(reward.id);
-    router.push(firstCheckoutStep(reward.id, 48500));
+    startCheckout(reward);
+    router.push(firstCheckoutStep(reward, balance));
   }
 
   return (
@@ -123,10 +138,10 @@ export default function RewardDetailScreen() {
           <View className="min-h-[62px] flex-row items-center rounded-full bg-[#5D5F61] p-1.5 pl-4">
             <View className="flex-1 pr-2">
               <Text className="text-[10px] text-[#D4D5D6]">
-                {isLocked ? 'Unlock at Platinum' : needsCash ? 'Pay with' : 'Balance after'}
+                {isLocked ? `Unlock at ${reward.lockedTier}` : needsCash ? 'Pay with' : 'Balance after'}
               </Text>
               <Text className="mt-0.5 text-[13px] font-medium text-white">
-                {isLocked ? 'Platinum member reward' : needsCash ? 'Miles + Cash' : `${balanceAfter} miles`}
+                {isLocked ? `${reward.lockedTier} member reward` : needsCash ? 'Miles + Cash' : `${balanceAfter} miles`}
               </Text>
             </View>
             <Pressable

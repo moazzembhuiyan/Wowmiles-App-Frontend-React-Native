@@ -5,7 +5,8 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { stepAfterAmount } from '@/components/checkout-flow';
 import { MilesHeader, MilesScreen } from '@/components/miles-ui';
 import { Banner, GoldButton, TextButton } from '@/components/money-ui';
-import { getReward, getRewardMeta } from '@/components/rewards-data';
+import { RewardGate } from '@/components/reward-gate';
+import type { Reward } from '@/lib/api/rewards';
 import { useToast } from '@/components/toast';
 import { Field } from '@/components/ui';
 import { getCheckoutDraft, updateCheckoutDraft } from '@/lib/api/redemptions';
@@ -17,12 +18,15 @@ function validDate(value: string) {
   return isoDate.test(value) && !Number.isNaN(Date.parse(value));
 }
 
-export default function RequestDetailsScreen() {
+export default function RequestDetailsScreenRoute() {
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const reward = getReward(id);
-  const required = getRewardMeta(reward.id).requiredInfo;
+  return <RewardGate id={id}>{(reward) => <RequestDetailsScreen reward={reward} />}</RewardGate>;
+}
+
+function RequestDetailsScreen({ reward }: { reward: Reward }) {
+  const required = reward.requiredInfo;
   const showToast = useToast();
-  const saved = getCheckoutDraft(reward.id).request;
+  const saved = getCheckoutDraft(reward).request;
 
   const [preferredDate, setPreferredDate] = useState(saved?.preferredDate ?? '');
   const [secondChoiceDate, setSecondChoiceDate] = useState(saved?.secondChoiceDate ?? '');
@@ -47,7 +51,7 @@ export default function RequestDetailsScreen() {
       showToast('Add guest names', 'The provider needs at least one name.');
       return;
     }
-    updateCheckoutDraft(reward.id, {
+    updateCheckoutDraft(reward, {
       request: {
         preferredDate,
         secondChoiceDate: secondChoiceDate || null,
@@ -57,7 +61,7 @@ export default function RequestDetailsScreen() {
         notes: notes.trim(),
       },
     });
-    router.push(stepAfterAmount(reward.id, true));
+    router.push(stepAfterAmount(reward, true));
   }
 
   return (

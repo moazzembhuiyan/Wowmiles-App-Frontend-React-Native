@@ -93,7 +93,7 @@ export default function SupportChatScreen() {
             {query.data
               ? query.data.status === 'resolved'
                 ? 'Resolved'
-                : `Replies in ~${query.data.replyEtaMinutes} min`
+                : `Replies in ~${query.data.replyEtaMinutes < 90 ? `${query.data.replyEtaMinutes} min` : `${Math.round(query.data.replyEtaMinutes / 60)} h`}`
               : ' '}
           </Text>
         </View>
