@@ -6,8 +6,8 @@ import { AuthField, AuthFooter, AuthHero, AuthPasswordField } from '@/components
 import { useToast } from '@/components/toast';
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('moazzem@gmail.com');
-  const [password, setPassword] = useState('123456789');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
   const showToast = useToast();
 
@@ -81,6 +81,9 @@ export default function LoginScreen() {
             <Text className="text-[12px] font-semibold text-[#354495]">Create an account</Text>
           </Pressable>
         </View>
+        <Pressable accessibilityRole="link" onPress={() => router.push('/guest')} className="mt-2 items-center py-1">
+          <Text className="text-[12px] font-semibold text-[#354495]">Explore as guest</Text>
+        </Pressable>
       </View>
       <AuthFooter
         eyebrow={email ? 'Signing in as' : 'Continue with your account'}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -36,9 +37,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useToast } from '@/components/toast';
+import { createBookingClaim, respondToClaim } from '@/lib/api/bookings';
 import { useTabBarVisibility } from '@/components/tab-bar-visibility';
 
-type BookingStatus = 'Awaiting supplier' | 'Approved' | 'Reversed';
+type BookingStatus = 'Awaiting supplier' | 'Approved' | 'Reversed' | 'Needs information' | 'Duplicate';
 type BookingCategory =
   | 'Independent hotel'
   | 'Hotel chain'
@@ -47,7 +49,7 @@ type BookingCategory =
   | 'Cruises'
   | 'Tour package'
   | 'Experience';
-type BookingFilter = 'All' | 'Awaiting supplier' | 'Approved' | 'Reversed';
+type BookingFilter = 'All' | 'Awaiting supplier' | 'Approved' | 'Needs you' | 'Reversed';
 type Screen = 'list' | 'type' | 'details' | 'review' | 'submitted' | 'detail' | 'appeal';
 
 type Booking = {
@@ -65,6 +67,8 @@ type Booking = {
   status: BookingStatus;
   evidenceName: string;
   statusHistory: { label: string; date: string; reversed?: boolean }[];
+  supplierQuestion?: string;
+  duplicateRegisteredOn?: string;
 };
 
 type BookingDraft = {
@@ -111,6 +115,48 @@ const initialBookings: Booking[] = [
     status: 'Awaiting supplier',
     evidenceName: 'msc-confirmation.pdf',
     statusHistory: [{ label: 'Registered', date: '22 Oct, 10:15 AM' }],
+  },
+  {
+    id: 'WM-48211',
+    partner: 'Hilton Dubai Al Habtoor City',
+    category: 'Hotel chain',
+    supplier: 'Hilton Hotels & Resorts',
+    reference: 'HIL-99212-AB',
+    traveler: 'Daniel Reed',
+    travelDates: '4–8 Nov 2026',
+    bookingValue: 'AED 12,800 · €3,200',
+    currency: 'AED',
+    submittedDate: '4 Nov 2026',
+    miles: 120,
+    status: 'Needs information',
+    evidenceName: 'hilton-booking.pdf',
+    supplierQuestion: 'Hilton cannot find your reference. Check it and send it again — nothing is lost.',
+    statusHistory: [
+      { label: 'Registered', date: '4 Nov, 09:20 AM' },
+      { label: 'Hilton asked for more', date: '6 Nov, 11:45 AM' },
+      { label: 'Waiting on you', date: 'Since 6 Nov', reversed: true },
+    ],
+  },
+  {
+    id: 'WM-48233',
+    partner: 'MSC Seaview — Western Med',
+    category: 'Cruises',
+    supplier: 'MSC Cruises',
+    reference: 'MSC-7741-KD',
+    traveler: 'Daniel Reed',
+    travelDates: '12–19 Dec 2026',
+    bookingValue: '€4,120',
+    currency: 'EUR',
+    submittedDate: '3 Nov 2026',
+    miles: 0,
+    status: 'Duplicate',
+    duplicateRegisteredOn: '2 Nov',
+    evidenceName: 'msc-confirmation.pdf',
+    statusHistory: [
+      { label: 'Registered', date: '3 Nov, 15:10 AM' },
+      { label: 'Duplicate found', date: '3 Nov, 15:11 AM' },
+      { label: 'No miles issued', date: '3 Nov, 15:11 AM', reversed: true },
+    ],
   },
   {
     id: 'WM-48154',
@@ -164,7 +210,7 @@ const blankDraft: BookingDraft = {
   value: '',
 };
 
-const bookingFilters: BookingFilter[] = ['All', 'Awaiting supplier', 'Approved', 'Reversed'];
+const bookingFilters: BookingFilter[] = ['All', 'Awaiting supplier', 'Approved', 'Needs you', 'Reversed'];
 const categories: { title: BookingCategory; subtitle: string; icon: typeof Hotel }[] = [
   { title: 'Independent hotel', subtitle: 'Rooms at independent properties', icon: Building2 },
   { title: 'Hotel chain', subtitle: 'Branded group properties', icon: Hotel },
@@ -317,7 +363,8 @@ function DetailHero({
   onMore: () => void;
 }) {
   const approved = booking.status === 'Approved';
-  const reversed = booking.status === 'Reversed';
+  const needsInfo = booking.status === 'Needs information';
+  const reversed = booking.status === 'Reversed' || booking.status === 'Duplicate' || needsInfo;
   const colors: [string, string, string] = approved
     ? ['#07533F', '#0F7554', '#18845D']
     : reversed
@@ -335,15 +382,23 @@ function DetailHero({
       <View className="mb-2 flex-row items-center">
         <View className="rounded-full bg-white px-2.5 py-1">
           <Text className={`text-[11px] font-semibold ${approved ? 'text-[#168052]' : reversed ? 'text-[#B62D3E]' : 'text-[#A77918]'}`}>
-            {approved ? '● Approved' : reversed ? `● Reversed by ${booking.supplier.split(' ')[0]}` : '● Awaiting supplier'}
+            {approved
+              ? '● Approved'
+              : booking.status === 'Duplicate'
+                ? '● Already claimed'
+                : reversed
+                  ? needsInfo
+                    ? `● ${booking.supplier.split(' ')[0]} needs more`
+                    : `● Reversed by ${booking.supplier.split(' ')[0]}`
+                  : '● Awaiting supplier'}
           </Text>
         </View>
         <Text className="ml-2 text-[11px] text-white/70">{booking.id}</Text>
       </View>
       <Text className="text-[23px] font-bold leading-[28px] text-white">{booking.partner}</Text>
       <View className="mt-1 flex-row items-baseline">
-        <Text className="text-[21px] font-bold text-white">{booking.miles > 0 ? `+${formatMiles(booking.miles)}` : `−${formatMiles(booking.miles)}`}</Text>
-        <Text className="ml-2 text-[12px] text-white/70">WowMiles</Text>
+        <Text className="text-[21px] font-bold text-white">{booking.status === 'Duplicate' ? 'None' : booking.miles > 0 ? `+${formatMiles(booking.miles)}` : `−${formatMiles(booking.miles)}`}</Text>
+        <Text className="ml-2 text-[12px] text-white/70">{needsInfo ? 'pending' : booking.status === 'Duplicate' ? 'miles' : 'WowMiles'}</Text>
       </View>
     </View>
   );
@@ -354,6 +409,8 @@ function StatusPill({ status }: { status: BookingStatus }) {
     'Awaiting supplier': { bg: '#FFF5DF', text: '#A77918', label: 'Awaiting supplier' },
     Approved: { bg: '#E8F6EF', text: '#168052', label: 'Approved' },
     Reversed: { bg: '#FCEDEE', text: '#B63D45', label: 'Reversed' },
+    'Needs information': { bg: '#FFF1DB', text: '#B25E09', label: 'Needs you' },
+    Duplicate: { bg: '#FCEDEE', text: '#B63D45', label: 'Already claimed' },
   }[status];
 
   return (
@@ -387,8 +444,8 @@ function BookingCard({ booking, onPress }: { booking: Booking; onPress: () => vo
       </View>
       <View className="mt-2.5 flex-row items-center justify-between border-t border-[#EEF0F4] pt-2">
         <StatusPill status={booking.status} />
-        <Text className={`text-[12px] font-semibold ${booking.status === 'Reversed' ? 'text-[#B63D45]' : isPending ? 'text-[#596071]' : 'text-[#C2761C]'}`}>
-          {amount}{isPending ? ' pending' : ''}
+        <Text className={`text-[12px] font-semibold ${booking.status === 'Reversed' || booking.status === 'Duplicate' ? 'text-[#B63D45]' : isPending ? 'text-[#596071]' : 'text-[#C2761C]'}`}>
+          {booking.status === 'Duplicate' ? 'No miles' : `${amount}${isPending || booking.status === 'Needs information' ? ' pending' : ''}`}
         </Text>
       </View>
       {isPending ? (
@@ -499,7 +556,8 @@ export function BookingFlow() {
   const [selected, setSelected] = useState<Booking | null>(null);
   const [submittedReference, setSubmittedReference] = useState('');
   const [supplierOpen, setSupplierOpen] = useState(false);
-  const [confirmBooking, setConfirmBooking] = useState(true);
+  const [confirmBooking, setConfirmBooking] = useState(false);
+  const [newReference, setNewReference] = useState('');
 
   useEffect(() => {
     setTabBarHidden(screen !== 'list');
@@ -508,7 +566,13 @@ export function BookingFlow() {
 
   const milesEstimate = useMemo(() => milesFromValue(draft.value), [draft.value]);
   const visibleBookings = useMemo(
-    () => bookings.filter((booking) => filter === 'All' || booking.status === filter),
+    () =>
+      bookings.filter(
+        (booking) =>
+          filter === 'All' ||
+          booking.status === filter ||
+          (filter === 'Needs you' && (booking.status === 'Needs information' || booking.status === 'Duplicate')),
+      ),
     [bookings, filter],
   );
   const visibleCategories = useMemo(
@@ -523,7 +587,7 @@ export function BookingFlow() {
   const beginRegistration = () => {
     setDraft(blankDraft);
     setProof(null);
-    setConfirmBooking(true);
+    setConfirmBooking(false);
     setScreen('type');
   };
 
@@ -573,14 +637,59 @@ export function BookingFlow() {
       showToast('Add booking evidence', 'Upload the supplier confirmation before continuing.', 'error');
       return;
     }
-    if (!confirmBooking) {
-      showToast('Please confirm your booking', 'Confirm the booking details before submitting.', 'error');
-      return;
-    }
     setScreen('review');
   };
 
+  const submitClaim = useMutation({
+    mutationFn: createBookingClaim,
+    onSuccess: () => finishSubmit(),
+    onError: (error) => showToast('Could not submit booking', error.message, 'error'),
+  });
+
+  const answerClaim = useMutation({
+    mutationFn: respondToClaim,
+    onSuccess: (result) => {
+      if (!selected) return;
+      const duplicate = result.status === 'duplicate';
+      const updated: Booking = {
+        ...selected,
+        reference: newReference.trim() || selected.reference,
+        status: duplicate ? 'Duplicate' : 'Awaiting supplier',
+        duplicateRegisteredOn: duplicate ? '2 Nov' : undefined,
+        miles: duplicate ? 0 : selected.miles,
+        supplierQuestion: undefined,
+        statusHistory: [
+          ...selected.statusHistory,
+          duplicate
+            ? { label: 'Already claimed by another agency', date: 'Just now', reversed: true }
+            : { label: 'You answered the supplier', date: 'Just now' },
+        ],
+      };
+      setBookings((current) => current.map((booking) => (booking.id === updated.id ? updated : booking)));
+      setSelected(updated);
+      setNewReference('');
+      showToast(
+        duplicate ? 'Reference already claimed' : 'Answer sent',
+        duplicate ? 'This reference was registered by another agency.' : 'The supplier will review your booking again.',
+        duplicate ? 'info' : 'success',
+      );
+    },
+    onError: (error) => showToast('Could not send your answer', error.message, 'error'),
+  });
+
   const submitBooking = () => {
+    submitClaim.mutate({
+      supplierReference: draft.reference,
+      title: draft.supplier,
+      amount: Number(draft.value.replace(/,/g, '')),
+      currency: draft.currency,
+      startDate: draft.checkIn,
+      endDate: draft.checkOut,
+      declarationAccepted: confirmBooking,
+    });
+  };
+
+  const finishSubmit = () => {
     const reference = `WM-${Math.floor(49000 + Math.random() * 900)}`;
     const category = draft.category ?? 'Hotel chain';
     const booking: Booking = {
@@ -671,7 +780,24 @@ export function BookingFlow() {
       buttonLabel="Submit"
       onPress={submitBooking}
       bottomInset={insets.bottom}
-      disabled={!confirmBooking}
+      disabled={!confirmBooking || submitClaim.isPending}
+    />
+  ) : screen === 'detail' && selected?.status === 'Needs information' ? (
+    <StickyActionBar
+      caption="Send a new reference"
+      value={`Your miles stay pending until ${selected.supplier.split(' ')[0]} confirms`}
+      buttonLabel={answerClaim.isPending ? 'Sending…' : 'Send'}
+      onPress={() => answerClaim.mutate({ id: selected.id, message: '', supplierReference: newReference.trim() || undefined })}
+      bottomInset={insets.bottom}
+      disabled={answerClaim.isPending || !newReference.trim()}
+    />
+  ) : screen === 'detail' && selected?.status === 'Duplicate' ? (
+    <StickyActionBar
+      caption="Ask Beverly to review"
+      value="If the other claim is wrong, Beverly can move it to you"
+      buttonLabel="Ask Beverly"
+      onPress={openAppeal}
+      bottomInset={insets.bottom}
     />
   ) : screen === 'detail' && selected?.status === 'Approved' ? (
     <StickyActionBar
@@ -1032,6 +1158,36 @@ export function BookingFlow() {
 
         {screen === 'detail' && selected ? (
           <>
+            {selected.status === 'Needs information' ? (
+              <>
+                <View className="mb-3 flex-row rounded-[14px] bg-[#FFEFEF] p-3">
+                  <X color="#C62828" size={16} />
+                  <View className="ml-2.5 flex-1">
+                    <Text className="text-[14px] font-medium text-[#C62828]">They have asked a question</Text>
+                    <Text className="mt-0.5 text-[12px] leading-[17px] text-[#C62828]">{selected.supplierQuestion}</Text>
+                  </View>
+                </View>
+                <TextInput
+                  accessibilityLabel="New supplier reference"
+                  value={newReference}
+                  onChangeText={setNewReference}
+                  autoCapitalize="characters"
+                  placeholder={`New reference (now ${selected.reference})`}
+                  placeholderTextColor="#A4AAB5"
+                  className="mb-3 h-11 rounded-[10px] border border-[#E8EAF0] bg-white px-3 text-[13px] text-[#252B3A]"
+                />
+              </>
+            ) : selected.status === 'Duplicate' ? (
+              <View className="mb-3 flex-row rounded-[14px] bg-[#FFEFEF] p-3">
+                <X color="#C62828" size={16} />
+                <View className="ml-2.5 flex-1">
+                  <Text className="text-[14px] font-medium text-[#C62828]">This reference is already claimed</Text>
+                  <Text className="mt-0.5 text-[12px] leading-[17px] text-[#C62828]">
+                    {`${selected.reference} was registered by another agency on ${selected.duplicateRegisteredOn ?? 'an earlier date'}. Only one claim can earn miles.`}
+                  </Text>
+                </View>
+              </View>
+            ) : (
             <View className="mb-3 rounded-[12px] bg-[#F0FBF5] p-3">
               <View className="flex-row items-start">
                 <CheckCircle2 color={selected.status === 'Reversed' ? '#B63D45' : '#0B9A5E'} size={15} />
@@ -1049,6 +1205,7 @@ export function BookingFlow() {
                 </View>
               </View>
             </View>
+            )}
 
             <SectionLabel>STATUS HISTORY</SectionLabel>
             <View className="mb-4">

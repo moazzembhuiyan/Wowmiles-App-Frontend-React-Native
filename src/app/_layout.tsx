@@ -4,10 +4,13 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationBar } from 'expo-navigation-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { ToastProvider } from '@/components/toast';
+import { queryClient } from '@/lib/api/client';
 
 export default function RootLayout() {
   return (
+    <QueryClientProvider client={queryClient}>
     <SafeAreaProvider>
       <ToastProvider>
         <StatusBar style="dark" />
@@ -31,5 +34,6 @@ export default function RootLayout() {
         </Stack>
       </ToastProvider>
     </SafeAreaProvider>
+    </QueryClientProvider>
   );
 }

@@ -4,7 +4,9 @@ import { ArrowLeft, CheckCircle2, LockKeyhole } from 'lucide-react-native';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { getReward } from '@/components/rewards-data';
+import { firstCheckoutStep } from '@/components/checkout-flow';
+import { getReward, getRewardMeta } from '@/components/rewards-data';
+import { startCheckout } from '@/lib/api/redemptions';
 
 export default function RewardDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -12,6 +14,7 @@ export default function RewardDetailScreen() {
   const reward = getReward(id);
   const isLocked = 'locked' in reward && reward.locked;
   const cost = reward.cost.toLocaleString('en-US');
+  const needsCash = reward.cost > 48500 && getRewardMeta(reward.id).allowMilesCash;
   const balanceAfter = Math.max(0, 48500 - reward.cost).toLocaleString('en-US');
   const Icon = reward.Icon;
 
@@ -20,7 +23,8 @@ export default function RewardDetailScreen() {
       router.push('/tier-benefits');
       return;
     }
-    router.push({ pathname: '/redeem-confirmation', params: { id: reward.id } });
+    startCheckout(reward.id);
+    router.push(firstCheckoutStep(reward.id, 48500));
   }
 
   return (
@@ -119,10 +123,10 @@ export default function RewardDetailScreen() {
           <View className="min-h-[62px] flex-row items-center rounded-full bg-[#5D5F61] p-1.5 pl-4">
             <View className="flex-1 pr-2">
               <Text className="text-[10px] text-[#D4D5D6]">
-                {isLocked ? 'Unlock at Platinum' : 'Balance after'}
+                {isLocked ? 'Unlock at Platinum' : needsCash ? 'Pay with' : 'Balance after'}
               </Text>
               <Text className="mt-0.5 text-[13px] font-medium text-white">
-                {isLocked ? 'Platinum member reward' : `${balanceAfter} miles`}
+                {isLocked ? 'Platinum member reward' : needsCash ? 'Miles + Cash' : `${balanceAfter} miles`}
               </Text>
             </View>
             <Pressable

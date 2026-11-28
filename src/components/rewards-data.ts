@@ -80,8 +80,90 @@ export const rewardCatalog = [
     usageSteps: ['Open your voucher to view fulfilment instructions.', 'Present the voucher at a participating partner.', 'Keep the code until your reward is collected.'],
     voucherCode: 'WM-SET-6K55-WM',
   },
+  {
+    id: 'spa-retreat',
+    title: 'Maldives spa retreat',
+    detail: 'Three nights · villa for two',
+    cost: 60000,
+    category: 'Experiences',
+    Icon: Star,
+    color: ['#2E8C9C', '#17506A'] as const,
+    description: 'A three-night villa stay for two with spa treatments, arranged and confirmed by the provider.',
+    benefits: ['Three nights for two guests', 'Daily spa treatment included', 'Dates confirmed by the provider'],
+    usageSteps: ['The provider confirms your dates.', 'Your voucher is issued once confirmed.', 'Show your voucher on arrival.'],
+    voucherCode: 'WM-SPA-60K2-MV',
+  },
 ] as const;
 
 export function getReward(id?: string) {
   return rewardCatalog.find((reward) => reward.id === id) ?? rewardCatalog[0];
+}
+
+export type Fulfilment = 'instant_voucher' | 'provider_confirm' | 'shipped' | 'provider_site';
+
+export type RequiredInfo = {
+  preferredDate: boolean;
+  secondChoiceDate: boolean;
+  guests: boolean;
+  pickup: boolean;
+  notes: boolean;
+};
+
+export type RewardMeta = {
+  fulfilment: Fulfilment;
+  cashValueMinor: number;
+  allowMilesCash: boolean;
+  minMilesForCash: number;
+  providerName: string;
+  providerUrl?: string;
+  requiredInfo: RequiredInfo;
+};
+
+const noInfo: RequiredInfo = { preferredDate: false, secondChoiceDate: false, guests: false, pickup: false, notes: false };
+
+const rewardMeta: Record<string, RewardMeta> = {
+  'lounge-pass': { fulfilment: 'instant_voucher', cashValueMinor: 0, allowMilesCash: false, minMilesForCash: 1000, providerName: 'Beverly Group', requiredInfo: noInfo },
+  'power-bank': { fulfilment: 'shipped', cashValueMinor: 0, allowMilesCash: false, minMilesForCash: 1000, providerName: 'WowMiles', requiredInfo: noInfo },
+  'desert-safari': {
+    fulfilment: 'provider_confirm',
+    cashValueMinor: 0,
+    allowMilesCash: true,
+    minMilesForCash: 1000,
+    providerName: 'Arabian Adventures',
+    requiredInfo: { preferredDate: true, secondChoiceDate: true, guests: true, pickup: true, notes: true },
+  },
+  'seat-upgrade': {
+    fulfilment: 'provider_site',
+    cashValueMinor: 0,
+    allowMilesCash: false,
+    minMilesForCash: 1000,
+    providerName: 'Emirates',
+    providerUrl: 'https://www.emirates.com',
+    requiredInfo: noInfo,
+  },
+  'hotel-voucher': {
+    fulfilment: 'provider_confirm',
+    cashValueMinor: 0,
+    allowMilesCash: false,
+    minMilesForCash: 1000,
+    providerName: 'Hilton',
+    requiredInfo: { ...noInfo, preferredDate: true, guests: true },
+  },
+  'gift-box': { fulfilment: 'instant_voucher', cashValueMinor: 0, allowMilesCash: true, minMilesForCash: 1000, providerName: 'WowMiles', requiredInfo: noInfo },
+  'spa-retreat': {
+    fulfilment: 'provider_confirm',
+    cashValueMinor: 0,
+    allowMilesCash: true,
+    minMilesForCash: 1000,
+    providerName: 'Azure Resorts',
+    requiredInfo: { preferredDate: true, secondChoiceDate: true, guests: true, pickup: false, notes: true },
+  },
+};
+
+export function getRewardMeta(id?: string): RewardMeta {
+  return rewardMeta[getReward(id).id];
+}
+
+export function needsRequestDetails(meta: RewardMeta) {
+  return Object.values(meta.requiredInfo).some(Boolean);
 }

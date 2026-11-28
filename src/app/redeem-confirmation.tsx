@@ -1,14 +1,30 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { useMutation } from '@tanstack/react-query';
 import { Gift, Wallet } from 'lucide-react-native';
 import { Pressable, Text, View } from 'react-native';
+import { useToast } from '@/components/toast';
+import { createRedemption, getCheckoutDraft } from '@/lib/api/redemptions';
 import { MilesScreen } from '@/components/miles-ui';
 import { FeatureHero } from '@/components/feature-ui';
-import { getReward } from '@/components/rewards-data';
+import { getReward, getRewardMeta } from '@/components/rewards-data';
 
 export default function RedeemConfirmationScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const reward = getReward(id);
   const cost = reward.cost.toLocaleString('en-US');
+  const providerConfirm = getRewardMeta(reward.id).fulfilment === 'provider_confirm';
+  const showToast = useToast();
+  const redeem = useMutation({
+    mutationFn: () => createRedemption({ draft: getCheckoutDraft(reward.id) }),
+    onSuccess: (redemption) =>
+      router.replace({ pathname: '/checkout/awaiting', params: { rid: redemption.id } }),
+    onError: (error) => showToast('Could not send request', error.message),
+  });
+
+  function confirm() {
+    if (providerConfirm) redeem.mutate();
+    else router.replace({ pathname: '/voucher', params: { id } });
+  }
 
   return (
     <MilesScreen>
@@ -35,20 +51,25 @@ export default function RedeemConfirmationScreen() {
           </Text>
           <Text className="ml-2 text-[13px] text-[#747B8B]">miles</Text>
         </View>
-        <Text className="mt-1 text-[12px] text-[#747B8B]">Your miles will be deducted on confirmation.</Text>
+        <Text className="mt-1 text-[12px] text-[#747B8B]">{providerConfirm ? 'Your miles are held until the provider confirms.' : 'Your miles will be deducted on confirmation.'}</Text>
       </View>
       <View className="mb-5 rounded-[14px] border border-[#F0E2C3] bg-[#FFF9ED] p-4">
         <Text className="text-[13px] font-semibold text-[#8F6818]">Before you redeem</Text>
         <Text className="mt-1 text-[12px] leading-[18px] text-[#686E79]">
-          This reward will be added to your vouchers immediately and cannot be exchanged for miles.
+          {providerConfirm
+            ? 'The provider confirms your request. If they decline, your miles come back.'
+            : 'This reward will be added to your vouchers immediately and cannot be exchanged for miles.'}
         </Text>
       </View>
       <Pressable
         accessibilityRole="button"
-        onPress={() => router.replace({ pathname: '/voucher', params: { id } })}
-        className="mb-3 h-[52px] items-center justify-center rounded-full bg-[#FFB91F]"
+        disabled={redeem.isPending}
+        onPress={confirm}
+        className="mb-3 h-[52px] items-center justify-center rounded-full bg-[#FFB91F] disabled:opacity-50"
       >
-        <Text className="text-[15px] font-semibold text-[#171A28]">Confirm redemption</Text>
+        <Text className="text-[15px] font-semibold text-[#171A28]">
+          {providerConfirm ? 'Send request' : 'Confirm redemption'}
+        </Text>
       </Pressable>
       <Pressable onPress={() => router.back()} className="mb-8 h-[48px] items-center justify-center">
         <Text className="text-[14px] font-medium text-[#626A79]">Cancel</Text>

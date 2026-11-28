@@ -63,6 +63,13 @@ export default function MilesScreenRoute() {
             </Text>
             <Text className="ml-2 text-[13px] text-[#D8DAF2]">miles</Text>
           </View>
+          <Pressable
+            accessibilityRole="link"
+            onPress={() => router.push('/wallet')}
+            className="mt-2 self-start"
+          >
+            <Text className="text-[13px] font-semibold text-[#FFB91F]">Balance breakdown  ›</Text>
+          </Pressable>
           <View className="mt-3 flex-row">
             <View className="mr-2 flex-1 items-center rounded-[12px] bg-white/20 py-2.5">
               <Text className="text-[18px] font-semibold text-white">62,400</Text>

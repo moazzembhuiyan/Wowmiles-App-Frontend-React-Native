@@ -129,6 +129,17 @@ export default function LoyaltyScreen() {
           </View>
 
           <View className="flex-1 bg-[#F8F9FB] px-5 pb-6 pt-5">
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/status')}
+              className="mb-5 flex-row items-center rounded-[14px] bg-white p-4"
+            >
+              <View className="flex-1">
+                <Text className="text-[14px] font-medium text-[#202638]">Status points breakdown</Text>
+                <Text className="mt-0.5 text-[12px] text-[#747B8B]">By source, and what is not counted yet</Text>
+              </View>
+              <ChevronRight color="#858B98" size={17} />
+            </Pressable>
             <Text className="mb-3 text-[12px] font-semibold tracking-[0.7px] text-[#747B8B]">
               TIER LADDER
             </Text>

@@ -80,8 +80,15 @@ export default function OnboardingScreen() {
           </Text>
         </Pressable>
         <Pressable
-          onPress={() => router.replace('/(auth)/login')}
+          accessibilityRole="link"
+          onPress={() => router.push('/guest')}
           className="mt-3 items-center py-1"
+        >
+          <Text className="text-[12px] font-semibold text-white">Explore as guest</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.replace('/(auth)/login')}
+          className="mt-1 items-center py-1"
         >
           <Text className="text-[12px] text-white/80">
             Already have an account? <Text className="font-semibold text-white">Log in</Text>
